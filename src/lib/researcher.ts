@@ -1,4 +1,5 @@
-import { Message } from "./api";
+import { FileUpload } from "./types";
+import { API_ENDPOINTS } from "./api";
 
 interface ResearchContext {
   source: string;
@@ -10,11 +11,19 @@ export class Researcher {
   private contexts: ResearchContext[] = [];
   private searchQueries: string[] = [];
 
-  constructor(
-    private openRouterKey: string,
-    private serpapiKey: string,
-    private jinaKey: string
-  ) {}
+  constructor() {
+    const openRouterKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+    const serpapiKey = import.meta.env.VITE_SERPAPI_API_KEY;
+    const jinaKey = import.meta.env.VITE_JINA_API_KEY;
+
+    if (!openRouterKey || !serpapiKey || !jinaKey) {
+      throw new Error("Missing required API keys for researcher mode");
+    }
+
+    this.openRouterKey = openRouterKey;
+    this.serpapiKey = serpapiKey;
+    this.jinaKey = jinaKey;
+  }
 
   public abort() {
     if (this.abortController) {
@@ -44,152 +53,146 @@ export class Researcher {
     }
   }
 
-  private async callLLM(messages: { role: string; content: string }[]): Promise<string> {
-    const response = await this.fetchWithTimeout(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${this.openRouterKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "gemini-2.0-flash-thinking-exp-01-21",
-          messages
-        })
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
-  }
-
-  private async searchWeb(query: string): Promise<string[]> {
-    const response = await this.fetchWithTimeout(
-      `https://serpapi.com/search?q=${encodeURIComponent(query)}&api_key=${this.serpapiKey}`,
-      { method: "GET" }
-    );
-
-    if (!response.ok) {
-      throw new Error(`SERPAPI error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.organic_results?.map((result: any) => result.link) || [];
-  }
-
-  private async fetchPageContent(url: string): Promise<string> {
-    const response = await this.fetchWithTimeout(
-      `https://r.jina.ai/${url}`,
-      {
-        headers: {
-          "Authorization": `Bearer ${this.jinaKey}`
-        }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Jina fetch error: ${response.status}`);
-    }
-
-    return response.text();
-  }
-
-  public async research(query: string, onProgress?: (message: Message) => void): Promise<Message[]> {
-    const messages: Message[] = [];
-    const addMessage = (message: Message) => {
-      messages.push(message);
-      onProgress?.(message);
-    };
-
+  private async searchWeb(query: string): Promise<ResearchContext[]> {
     try {
-      // Generate initial search queries
-      addMessage({
-        type: "system",
-        content: "🔍 Generating research queries..."
+      console.log('Searching web with query:', query);
+      
+      // Build query parameters
+      const params = new URLSearchParams({
+        q: query,
+        api_key: this.serpapiKey,
+        engine: 'google',  // Specify search engine
+        google_domain: 'google.com',
+        gl: 'us',  // Set location to US
+        hl: 'en'   // Set language to English
       });
-
-      const searchQueriesResponse = await this.callLLM([
-        { role: "system", content: "Generate 4 search queries for comprehensive research on this topic. Return as JSON array." },
-        { role: "user", content: query }
-      ]);
-
-      this.searchQueries = JSON.parse(searchQueriesResponse);
-
-      // Perform searches and gather information
-      for (const searchQuery of this.searchQueries) {
-        addMessage({
-          type: "system",
-          content: `🌐 Searching: "${searchQuery}"`
-        });
-
-        const urls = await this.searchWeb(searchQuery);
-        
-        for (const url of urls.slice(0, 3)) { // Limit to top 3 results per query
-          try {
-            const content = await this.fetchPageContent(url);
-            
-            // Extract relevant information
-            const relevantContent = await this.callLLM([
-              { role: "system", content: "Extract only the most relevant information for the query." },
-              { role: "user", content: `Query: ${query}\nContent: ${content.substring(0, 10000)}` }
-            ]);
-
-            this.contexts.push({
-              source: url,
-              content: relevantContent
-            });
-
-            addMessage({
-              type: "system",
-              content: `📑 Analyzed source: ${url}`
-            });
-          } catch (error) {
-            console.error(`Error processing ${url}:`, error);
-          }
+      
+      const url = `${API_ENDPOINTS.SERPAPI}?${params.toString()}`;
+      console.log('Full URL:', url.replace(this.serpapiKey, '[REDACTED]'));
+      
+      const response = await this.fetchWithTimeout(url, { 
+        method: "GET",
+        headers: {
+          "Accept": "application/json"
         }
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('SerpAPI error response:', text);
+        throw new Error(`Failed to search web: ${response.status} ${response.statusText} - ${text}`);
       }
 
-      // Generate final comprehensive response
-      addMessage({
-        type: "system",
-        content: "✍️ Generating comprehensive research report..."
-      });
+      const contentType = response.headers.get('content-type');
+      const rawData = await response.text();
+      console.log('Raw response:', rawData);
 
-      const finalReport = await this.callLLM([
-        { role: "system", content: "Generate a comprehensive research report based on the gathered information." },
-        { role: "user", content: `Query: ${query}\n\nGathered Information:\n${this.contexts.map(c => c.content).join('\n\n')}` }
-      ]);
+      if (!contentType?.includes('application/json')) {
+        console.error('Unexpected response type:', contentType, 'Response:', rawData);
+        throw new Error('Invalid response format from search API');
+      }
+      
+      let data;
+      try {
+        data = JSON.parse(rawData);
+      } catch (e) {
+        console.error('Failed to parse response:', e);
+        throw new Error('Invalid JSON response from search API');
+      }
 
-      addMessage({
-        type: "answer",
-        content: finalReport
-      });
+      if (!data.organic_results || !Array.isArray(data.organic_results)) {
+        console.error('Unexpected response structure:', data);
+        throw new Error('Invalid search results format');
+      }
 
-      // Add sources
-      addMessage({
-        type: "system",
-        content: "📚 Sources:\n" + this.contexts.map(c => `- ${c.source}`).join('\n')
-      });
-
-      return messages;
+      return data.organic_results.slice(0, 3).map((result: any) => ({
+        source: result.link || '',
+        content: result.snippet || result.title || ''
+      }));
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        addMessage({
-          type: "system",
-          content: "❌ Research operation cancelled."
-        });
-      } else {
-        addMessage({
-          type: "system",
-          content: `❌ Error during research: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
-      }
-      return messages;
+      console.error('Search web error:', error);
+      throw error;
     }
   }
+
+  private async analyzeContent(content: string, contexts: ResearchContext[]): Promise<string> {
+    try {
+      const messages = [
+        {
+          role: "system",
+          content: "You are a research assistant helping to analyze and summarize information."
+        },
+        {
+          role: "user",
+          content: `Please analyze the following research query and provide a comprehensive answer based on the given context:\n\nQuery: ${content}\n\nContexts:\n${contexts
+            .map((ctx) => `Source: ${ctx.source}\nContent: ${ctx.content}\n`)
+            .join("\n")}`
+        }
+      ];
+
+      const response = await this.fetchWithTimeout(
+        API_ENDPOINTS.OPENROUTER,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${this.openRouterKey}`
+          },
+          body: JSON.stringify({
+            model: "anthropic/claude-2",
+            messages
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('OpenRouter error response:', text);
+        throw new Error(`Failed to analyze content: ${response.status} ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await response.text();
+        console.error('Unexpected response type:', contentType, 'Response:', text);
+        throw new Error('Invalid response format from analysis API');
+      }
+
+      const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        console.error('Unexpected response structure:', data);
+        throw new Error('Invalid analysis result format');
+      }
+
+      return data.choices[0].message.content;
+    } catch (error) {
+      console.error('Analyze content error:', error);
+      throw new Error(`Failed to analyze content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  public async analyze(content: string, files: FileUpload[] = []): Promise<string> {
+    try {
+      // Search for relevant information
+      const contexts = await this.searchWeb(content);
+      
+      // Analyze the content with the found contexts
+      const analysis = await this.analyzeContent(content, contexts);
+      
+      return analysis;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Research analysis failed: ${error.message}`);
+      }
+      throw new Error("Research analysis failed");
+    }
+  }
+
+  private openRouterKey: string;
+  private serpapiKey: string;
+  private jinaKey: string;
 }

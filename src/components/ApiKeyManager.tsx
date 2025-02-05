@@ -1,157 +1,172 @@
 import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiKeySchema } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
+import { ApiKeys } from "@/lib/types";
 
 interface ApiKeyManagerProps {
-  onSubmit: (keys: { [key: string]: string }) => void;
-  initialKeys: {
-    deepseek: string | null;
-    elevenlabs: string | null;
-    gemini: string | null;
-  };
+  onSubmit: (keys: ApiKeys) => void;
+  initialKeys?: ApiKeys;
   show: boolean;
   setShow: (show: boolean) => void;
 }
 
-export const ApiKeyManager = ({ onSubmit, initialKeys, show, setShow }: ApiKeyManagerProps) => {
-  const [keys, setKeys] = useState({
-    deepseek: initialKeys.deepseek || "",
-    elevenlabs: initialKeys.elevenlabs || "",
-    gemini: initialKeys.gemini || ""
+const LOCAL_STORAGE_KEY = 'api_keys';
+
+export function ApiKeyManager({ onSubmit, initialKeys, show, setShow }: ApiKeyManagerProps) {
+  // First try to get from env, then from initialKeys (localStorage), then empty string
+  const [keys, setKeys] = useState<ApiKeys>({
+    deepseek: import.meta.env.VITE_DEEPSEEK_API_KEY || initialKeys?.deepseek || "",
+    elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY || initialKeys?.elevenlabs || "",
+    gemini: import.meta.env.VITE_GEMINI_API_KEY || initialKeys?.gemini || "",
+    serpapi: import.meta.env.VITE_SERPAPI_API_KEY || initialKeys?.serpapi || "",
+    jina: import.meta.env.VITE_JINA_API_KEY || initialKeys?.jina || "",
+    openrouter: import.meta.env.VITE_OPENROUTER_API_KEY || initialKeys?.openrouter || ""
   });
-  
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const { toast } = useToast();
 
+  // Check if we have all required keys from env
+  const hasAllEnvKeys = Boolean(
+    import.meta.env.VITE_DEEPSEEK_API_KEY &&
+    import.meta.env.VITE_ELEVENLABS_API_KEY &&
+    import.meta.env.VITE_GEMINI_API_KEY &&
+    import.meta.env.VITE_SERPAPI_API_KEY &&
+    import.meta.env.VITE_JINA_API_KEY &&
+    import.meta.env.VITE_OPENROUTER_API_KEY
+  );
+
+  // Load keys from localStorage on mount
   useEffect(() => {
-    setKeys({
-      deepseek: initialKeys.deepseek || "",
-      elevenlabs: initialKeys.elevenlabs || "",
-      gemini: initialKeys.gemini || ""
-    });
-  }, [initialKeys]);
-
-  const validateKeys = () => {
-    try {
-      const validKeys: { [key: string]: string } = {};
-      const newErrors: { [key: string]: string } = {};
-
-      // Only include non-empty keys
-      if (keys.deepseek) validKeys.deepseek = keys.deepseek;
-      if (keys.elevenlabs) validKeys.elevenlabs = keys.elevenlabs;
-      if (keys.gemini) validKeys.gemini = keys.gemini;
-
-      // Validate using Zod schema
-      ApiKeySchema.parse(validKeys);
-      setErrors({});
-      return validKeys;
-    } catch (error: any) {
-      const newErrors: { [key: string]: string } = {};
-      if (error.errors) {
-        error.errors.forEach((err: any) => {
-          const field = err.path[0];
-          newErrors[field] = err.message;
-        });
-      }
-      setErrors(newErrors);
-      return null;
+    const storedKeys = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedKeys) {
+      const parsedKeys = JSON.parse(storedKeys);
+      setKeys(prevKeys => ({
+        deepseek: import.meta.env.VITE_DEEPSEEK_API_KEY || parsedKeys.deepseek || prevKeys.deepseek,
+        elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY || parsedKeys.elevenlabs || prevKeys.elevenlabs,
+        gemini: import.meta.env.VITE_GEMINI_API_KEY || parsedKeys.gemini || prevKeys.gemini,
+        serpapi: import.meta.env.VITE_SERPAPI_API_KEY || parsedKeys.serpapi || prevKeys.serpapi,
+        jina: import.meta.env.VITE_JINA_API_KEY || parsedKeys.jina || prevKeys.jina,
+        openrouter: import.meta.env.VITE_OPENROUTER_API_KEY || parsedKeys.openrouter || prevKeys.openrouter
+      }));
     }
-  };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const validKeys = validateKeys();
-    if (!validKeys) {
-      toast({
-        title: "Validation Error",
-        description: "Please check your API key formats and try again.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (!validKeys.deepseek) {
-      toast({
-        title: "DeepSeek API Key Required",
-        description: "Please enter your DeepSeek API key to continue.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      onSubmit(validKeys);
-      setShow(false);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to save API keys",
-        variant: "destructive"
-      });
-    }
+    // Save to localStorage
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(keys));
+    onSubmit(keys);
+    setShow(false);
   };
 
-  if (!show) return null;
+  const handleChange = (key: keyof ApiKeys, value: string) => {
+    setKeys((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // If we have all env keys, don't show the dialog
+  if (hasAllEnvKeys && !show) {
+    return null;
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-background rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-2xl font-bold mb-4">API Settings</h2>
+    <Dialog open={show} onOpenChange={setShow}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>API Key Configuration</DialogTitle>
+          <DialogDescription>
+            {hasAllEnvKeys 
+              ? "All API keys are configured in environment variables. You can override them here if needed."
+              : "Configure missing API keys. Keys will be stored in your browser."}
+          </DialogDescription>
+        </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="deepseek">DeepSeek API Key (Required)</Label>
+          <div className="space-y-2">
+            <Label htmlFor="deepseek">
+              DeepSeek API Key {!import.meta.env.VITE_DEEPSEEK_API_KEY && "(Required)"}
+            </Label>
             <Input
               id="deepseek"
               type="password"
               value={keys.deepseek}
-              onChange={(e) => setKeys(prev => ({ ...prev, deepseek: e.target.value }))}
-              className={errors.deepseek ? "border-red-500" : ""}
+              onChange={(e) => handleChange("deepseek", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_DEEPSEEK_API_KEY)}
+              required={!import.meta.env.VITE_DEEPSEEK_API_KEY}
             />
-            {errors.deepseek && (
-              <p className="text-red-500 text-sm mt-1">{errors.deepseek}</p>
-            )}
           </div>
-          
-          <div>
-            <Label htmlFor="elevenlabs">ElevenLabs API Key (Optional)</Label>
+
+          <div className="space-y-2">
+            <Label htmlFor="elevenlabs">
+              ElevenLabs API Key {!import.meta.env.VITE_ELEVENLABS_API_KEY && "(Optional)"}
+            </Label>
             <Input
               id="elevenlabs"
               type="password"
               value={keys.elevenlabs}
-              onChange={(e) => setKeys(prev => ({ ...prev, elevenlabs: e.target.value }))}
-              className={errors.elevenlabs ? "border-red-500" : ""}
+              onChange={(e) => handleChange("elevenlabs", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_ELEVENLABS_API_KEY)}
             />
-            {errors.elevenlabs && (
-              <p className="text-red-500 text-sm mt-1">{errors.elevenlabs}</p>
-            )}
           </div>
 
-          <div>
-            <Label htmlFor="gemini">Gemini API Key (Optional)</Label>
+          <div className="space-y-2">
+            <Label htmlFor="gemini">
+              Gemini API Key {!import.meta.env.VITE_GEMINI_API_KEY && "(Optional)"}
+            </Label>
             <Input
               id="gemini"
               type="password"
               value={keys.gemini}
-              onChange={(e) => setKeys(prev => ({ ...prev, gemini: e.target.value }))}
-              className={errors.gemini ? "border-red-500" : ""}
+              onChange={(e) => handleChange("gemini", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_GEMINI_API_KEY)}
             />
-            {errors.gemini && (
-              <p className="text-red-500 text-sm mt-1">{errors.gemini}</p>
-            )}
           </div>
 
-          <div className="flex justify-end space-x-2 pt-4">
+          <div className="space-y-2">
+            <Label htmlFor="serpapi">
+              SerpAPI Key {!import.meta.env.VITE_SERPAPI_API_KEY && "(Required for Research)"}
+            </Label>
+            <Input
+              id="serpapi"
+              type="password"
+              value={keys.serpapi}
+              onChange={(e) => handleChange("serpapi", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_SERPAPI_API_KEY)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="jina">
+              Jina API Key {!import.meta.env.VITE_JINA_API_KEY && "(Required for Research)"}
+            </Label>
+            <Input
+              id="jina"
+              type="password"
+              value={keys.jina}
+              onChange={(e) => handleChange("jina", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_JINA_API_KEY)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="openrouter">
+              OpenRouter API Key {!import.meta.env.VITE_OPENROUTER_API_KEY && "(Required for Research)"}
+            </Label>
+            <Input
+              id="openrouter"
+              type="password"
+              value={keys.openrouter}
+              onChange={(e) => handleChange("openrouter", e.target.value)}
+              disabled={Boolean(import.meta.env.VITE_OPENROUTER_API_KEY)}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setShow(false)}>
               Cancel
             </Button>
-            <Button type="submit">Save Settings</Button>
+            <Button type="submit">Save Keys</Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
-};
+}

@@ -9,15 +9,16 @@ import {
 import { ChatMode } from "@/lib/types";
 
 interface ModeSelectorProps {
-  currentMode: ChatMode;
+  selectedMode: ChatMode;
   onModeChange: (mode: ChatMode) => void;
+  modes: Array<{ id: string; label: string; }>;
   disabled?: boolean;
 }
 
-export function ModeSelector({ currentMode, onModeChange, disabled }: ModeSelectorProps) {
+export function ModeSelector({ selectedMode, onModeChange, modes, disabled }: ModeSelectorProps) {
   return (
     <Select
-      value={currentMode}
+      value={selectedMode}
       onValueChange={(value: ChatMode) => onModeChange(value)}
       disabled={disabled}
     >
@@ -25,9 +26,9 @@ export function ModeSelector({ currentMode, onModeChange, disabled }: ModeSelect
         <SelectValue placeholder="Select Mode" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="default">Default Chat</SelectItem>
-        <SelectItem value="researcher">Deep Researcher</SelectItem>
-        <SelectItem value="coder">Deep Coder</SelectItem>
+        {modes.map(mode => (
+          <SelectItem key={mode.id} value={mode.id}>{mode.label}</SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

@@ -41,6 +41,15 @@ const VALIDATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const TIMEOUT_DURATION = 120000; // 120 seconds
 const ARCHITECT_TIMEOUT = 120000; // 120 seconds for architect review
 
+// API Endpoints
+export const API_ENDPOINTS = {
+  OPENROUTER: "/api/proxy/openrouter",
+  SERPAPI: "/api/proxy/serpapi",
+  JINA: "/api/proxy/jina",
+  GEMINI: "/api/proxy/gemini",
+  DEEPSEEK: "/api/proxy/deepseek"
+} as const;
+
 export const saveApiKeys = (keys: { [key: string]: string }) => {
   try {
     // Validate keys before saving
@@ -140,7 +149,23 @@ export const saveToLocalStorage = (messages: Message[]) => {
 export const loadFromLocalStorage = (): Message[] => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const messages = stored ? JSON.parse(stored) : [];
+    
+    // Validate that messages is an array and each message has the correct shape
+    if (!Array.isArray(messages)) {
+      return [];
+    }
+    
+    return messages.filter((msg): msg is Message => {
+      return (
+        msg &&
+        typeof msg === "object" &&
+        "type" in msg &&
+        "content" in msg &&
+        typeof msg.content === "string" &&
+        (msg.type === "user" || msg.type === "reasoning" || msg.type === "answer" || msg.type === "system")
+      );
+    });
   } catch (error) {
     console.error("Error loading from localStorage:", error);
     return [];
