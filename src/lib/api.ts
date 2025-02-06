@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Message, ApiKeys } from "./types";
 
 const API_KEY_REGEX = /^[A-Za-z0-9_-]{10,}$/;
 
@@ -22,121 +23,22 @@ export interface ApiResponse {
   timeoutReason?: string;
 }
 
-export type MessageType = "user" | "reasoning" | "answer" | "system";
-
-export interface Message {
-  type: MessageType;
-  content: string;
-}
-
-const STORAGE_KEY = "chat_history";
-const API_KEYS_STORAGE = "api_keys";
-const MAX_HISTORY = 5;
-const API_URL = "https://api.deepseek.com/v1/chat/completions";
-
-// Keep track of API key validation status
-const apiKeyValidationCache = new Map<string, { isValid: boolean; timestamp: number }>();
-const VALIDATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-const TIMEOUT_DURATION = 120000; // 120 seconds
-const ARCHITECT_TIMEOUT = 120000; // 120 seconds for architect review
-
-// API Endpoints
+// API Endpoints configuration
 export const API_ENDPOINTS = {
-  OPENROUTER: "https://openrouter.ai/api/v1/chat/completions",  // Use direct URL instead of proxy
+  OPENROUTER: "https://openrouter.ai/api/v1/chat/completions",
   SERPAPI: "/api/proxy/serpapi",
   JINA: "/api/proxy/jina",
   GEMINI: "/api/proxy/gemini",
   DEEPSEEK: "/api/proxy/deepseek"
 } as const;
 
-export const saveApiKeys = (keys: { [key: string]: string }) => {
-  try {
-    // Validate keys before saving
-    ApiKeySchema.parse(keys);
-    localStorage.setItem(API_KEYS_STORAGE, JSON.stringify(keys));
-    // Clear validation cache when new keys are saved
-    apiKeyValidationCache.clear();
-  } catch (error) {
-    console.error("Invalid API key format:", error);
-    throw new Error("Invalid API key format. Please check your API keys.");
-  }
-};
+// Constants
+const STORAGE_KEY = "chat_history";
+const API_KEYS_STORAGE = "api_keys";
+const MAX_HISTORY = 5;
+const TIMEOUT_DURATION = 120000; // 120 seconds
 
-export const loadApiKeys = () => {
-  try {
-    const stored = localStorage.getItem(API_KEYS_STORAGE);
-    if (!stored) {
-      return {
-        deepseek: null,
-        elevenlabs: null,
-        gemini: null
-      };
-    }
-    
-    const keys = JSON.parse(stored);
-    // Validate loaded keys
-    try {
-      ApiKeySchema.parse(keys);
-      return keys;
-    } catch (error) {
-      console.error("Invalid stored API keys:", error);
-      // Return empty keys if validation fails
-      return {
-        deepseek: null,
-        elevenlabs: null,
-        gemini: null
-      };
-    }
-  } catch (error) {
-    console.error("Error loading API keys:", error);
-    return {
-      deepseek: null,
-      elevenlabs: null,
-      gemini: null
-    };
-  }
-};
-
-export const validateApiKey = (apiKey: string | null): string => {
-  if (!apiKey) {
-    throw new Error('API key is required');
-  }
-
-  try {
-    // Basic format validation
-    if (!API_KEY_REGEX.test(apiKey)) {
-      throw new Error('Invalid API key format');
-    }
-
-    return apiKey;
-  } catch (error) {
-    console.error('API key validation failed:', error);
-    throw new Error('Invalid API key. Please check your API key format.');
-  }
-};
-
-export const handleApiError = (error: any): never => {
-  let message = 'An unknown error occurred';
-  
-  if (error?.error?.message) {
-    if (error.error.message.includes('Authentication Fails')) {
-      message = 'Invalid or expired API key. Please check your DeepSeek API key in settings.';
-      // Cache the invalid status
-      const apiKey = error?.config?.headers?.Authorization?.replace('Bearer ', '');
-      if (apiKey) {
-        apiKeyValidationCache.set(apiKey, { isValid: false, timestamp: Date.now() });
-      }
-    } else if (error.error.type === 'authentication_error') {
-      message = 'Authentication failed. Please verify your API key and try again.';
-    } else {
-      message = error.error.message;
-    }
-  }
-  
-  throw new Error(message);
-};
-
+// Local storage functions
 export const saveToLocalStorage = (messages: Message[]) => {
   try {
     const trimmedHistory = messages.slice(-MAX_HISTORY);
@@ -151,7 +53,6 @@ export const loadFromLocalStorage = (): Message[] => {
     const stored = localStorage.getItem(STORAGE_KEY);
     const messages = stored ? JSON.parse(stored) : [];
     
-    // Validate that messages is an array and each message has the correct shape
     if (!Array.isArray(messages)) {
       return [];
     }
@@ -172,20 +73,49 @@ export const loadFromLocalStorage = (): Message[] => {
   }
 };
 
+// API Key management
+export const saveApiKeys = (keys: ApiKeys) => {
+  try {
+    localStorage.setItem(API_KEYS_STORAGE, JSON.stringify(keys));
+  } catch (error) {
+    console.error("Error saving API keys:", error);
+    throw new Error("Failed to save API keys");
+  }
+};
+
+export const loadApiKeys = (): ApiKeys => {
+  try {
+    const stored = localStorage.getItem(API_KEYS_STORAGE);
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error("Error loading API keys:", error);
+    return {};
+  }
+};
+
+export const validateApiKey = (apiKey: string | null): string => {
+  if (!apiKey) {
+    throw new Error('API key is required');
+  }
+
+  if (!API_KEY_REGEX.test(apiKey)) {
+    throw new Error('Invalid API key format');
+  }
+
+  return apiKey;
+};
+
 const cleanJsonString = (str: string): string => {
-  // Remove markdown code blocks
   str = str.replace(/```json\s*|\s*```/g, '');
-  // Remove any other markdown formatting
   str = str.replace(/```[a-z]*\s*|\s*```/g, '');
-  // Ensure proper JSON structure
   str = str.trim();
-  // If the string doesn't start with {, wrap it
   if (!str.startsWith('{')) {
     str = `{"type": "thinking", "content": ${JSON.stringify(str)}}`;
   }
   return str;
 };
 
+// DeepSeek API integration
 export const callDeepSeek = async (
   prompt: string, 
   apiKey: string, 
@@ -197,17 +127,18 @@ export const callDeepSeek = async (
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_DURATION);
 
-    // First, get the thought process
-    const thoughtResponse = await fetch(API_URL, {
+    // First, get the thought process using OpenRouter
+    const thoughtResponse = await fetch(API_ENDPOINTS.OPENROUTER, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${validatedKey}`,
-        'Accept': 'application/json'
+        'HTTP-Referer': 'http://localhost:8080',
+        'X-Title': 'Deep Researcher'
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-ai/deepseek-chat-1.3b",
         messages: [
           { 
             role: "system", 
@@ -254,17 +185,18 @@ export const callDeepSeek = async (
       onThoughtUpdate?.(defaultThought);
     }
 
-    // Now get the actual solution
-    const solutionResponse = await fetch(API_URL, {
+    // Now get the actual solution using OpenRouter
+    const solutionResponse = await fetch(API_ENDPOINTS.OPENROUTER, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${validatedKey}`,
-        'Accept': 'application/json'
+        'HTTP-Referer': 'http://localhost:8080',
+        'X-Title': 'Deep Researcher'
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-ai/deepseek-chat-1.3b",
         messages: [
           { 
             role: "system", 
@@ -313,7 +245,6 @@ export const callDeepSeek = async (
       };
     }
 
-    // Handle JSON parsing errors
     if (error instanceof SyntaxError) {
       return {
         content: "I encountered an error processing the response. Let me try a simpler approach.",
