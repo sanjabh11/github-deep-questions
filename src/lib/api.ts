@@ -43,7 +43,7 @@ const ARCHITECT_TIMEOUT = 120000; // 120 seconds for architect review
 
 // API Endpoints
 export const API_ENDPOINTS = {
-  OPENROUTER: "/api/proxy/openrouter",
+  OPENROUTER: "https://openrouter.ai/api/v1/chat/completions",  // Use direct URL instead of proxy
   SERPAPI: "/api/proxy/serpapi",
   JINA: "/api/proxy/jina",
   GEMINI: "/api/proxy/gemini",

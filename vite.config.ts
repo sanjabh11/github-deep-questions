@@ -24,6 +24,24 @@ export default defineConfig(({ mode }) => ({
             console.log('Received Response from:', req.url, 'Status:', proxyRes.statusCode);
           });
         }
+      },
+      '/api/proxy/openrouter': {
+        target: 'https://openrouter.ai/api/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/proxy\/openrouter/, ''),  // Remove the prefix completely
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('OpenRouter proxy error:', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending OpenRouter Request to:', req.url);
+            proxyReq.setHeader('HTTP-Referer', 'http://localhost:8080');
+            proxyReq.setHeader('X-Title', 'GitHub Deep Questions');
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received OpenRouter Response:', req.url, 'Status:', proxyRes.statusCode);
+          });
+        }
       }
     }
   },

@@ -11,7 +11,8 @@ const router: Router = express.Router();
 // Enable CORS for the frontend
 router.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:8080',
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Title', 'OpenAI-Organization']
 }));
 
 interface SerpApiResponse {
@@ -108,7 +109,7 @@ const openRouterHandler: RequestHandler = async (req, res, next) => {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'X-Title': 'Deep Researcher'
+        'X-Title': 'Deep Researcher',
       },
       body: JSON.stringify(req.body)
     });

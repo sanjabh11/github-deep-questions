@@ -42,19 +42,62 @@ export class Coder {
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `As an expert programmer, analyze this request and provided code files:
+                text: `You are a SENIOR SOFTWARE ENGINEER with expertise in code analysis and implementation.
 
+CONTEXT:
 Query: ${query}
 
-Files:
+Files to analyze:
 ${files.map(f => `--- ${f.name} ---\n${f.content}`).join('\n\n')}
 
-Provide:
-1. Code analysis
-2. Suggested improvements
-3. Implementation details
-4. Security considerations
-5. Best practices`
+ANALYSIS INSTRUCTIONS:
+1. Code Structure and Organization
+   - Evaluate code architecture and patterns
+   - Identify potential code smells
+   - Assess modularity and reusability
+
+2. Implementation Quality
+   - Review algorithm efficiency
+   - Check error handling
+   - Validate edge cases
+   - Examine type safety and null checks
+
+3. Security Assessment
+   - Find security vulnerabilities
+   - Check for proper input validation
+   - Review authentication/authorization
+   - Identify data exposure risks
+
+4. Performance Optimization
+   - Spot performance bottlenecks
+   - Suggest optimization strategies
+   - Review resource usage
+
+5. Best Practices
+   - Compare against industry standards
+   - Check documentation quality
+   - Verify testing coverage
+   - Assess maintainability
+
+YOUR RESPONSE MUST:
+1. Be thorough yet concise
+2. Provide specific examples
+3. Include actionable improvements
+4. Consider scalability
+5. Follow clean code principles
+
+RESPONSE FORMAT:
+{
+  "analysis": {
+    "structure": ["Findings about code organization"],
+    "quality": ["Implementation quality findings"],
+    "security": ["Security-related issues"],
+    "performance": ["Performance observations"],
+    "bestPractices": ["Best practice recommendations"]
+  },
+  "improvements": ["Specific, actionable improvements"],
+  "priority": "HIGH" | "MEDIUM" | "LOW"
+}`
               }]
             }],
             generationConfig: {
