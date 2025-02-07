@@ -58,6 +58,11 @@ export class Researcher {
   private async searchWeb(query: string): Promise<ResearchContext[]> {
     try {
       // First generate focused search queries using LLM
+      console.log("DEBUG: searchWeb function is being called");
+      console.log("DEBUG: OpenRouter API Key value (this.openRouterKey):", this.openRouterKey);
+      console.log("DEBUG: typeof this.openRouterKey:", typeof this.openRouterKey);
+      console.log("DEBUG: Boolean(this.openRouterKey):", Boolean(this.openRouterKey));
+
       const searchQueriesResponse = await this.fetchWithTimeout(
         '/api/proxy/openrouter/chat/completions',
         {
@@ -71,8 +76,8 @@ export class Researcher {
             messages: [
               {
                 role: "system",
-                content: `You are an expert research assistant. Given the user's query, generate up to four distinct, 
-                precise search queries that would help gather comprehensive information on the topic. 
+                content: `You are an expert research assistant. Given the user's query, generate up to four distinct,
+                precise search queries that would help gather comprehensive information on the topic.
                 Return only a Python list of strings, for example: ['query1', 'query2', 'query3'].`
               },
               {
@@ -87,76 +92,35 @@ export class Researcher {
 
       if (!searchQueriesResponse.ok) {
         const errorData = await searchQueriesResponse.json();
-        console.error('OpenRouter error:', errorData);
-        throw new Error(`Failed to generate search queries: ${errorData.error?.message || 'Unknown error'}`);
+        console.error('Error:', errorData);
+        throw new Error(`Request failed with status ${searchQueriesResponse.status}: ${errorData.error?.message || 'Unknown error'}`);
       }
 
-      const searchQueriesData = await searchQueriesResponse.json();
-      console.log('Search queries response:', searchQueriesData);
+      const data = await searchQueriesResponse.json();
+      console.log('Response Data:', data);
       
-      let searchQueries: string[];
-      try {
-        searchQueries = JSON.parse(searchQueriesData.choices[0].message.content.trim());
-        if (!Array.isArray(searchQueries)) {
-          throw new Error('Response is not an array');
-        }
-      } catch (e) {
-        console.warn('Failed to parse search queries response, using fallback:', e);
-        searchQueries = [query];
+      if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
+        this.searchQueries = data.candidates[0].content.parts.map((part: { text: string }) => part.text);
+      } else {
+        console.error('Unexpected search queries response structure:', JSON.stringify(data, null, 2));
+        throw new Error('Search queries generation failed: Invalid response format');
       }
-      
-      // Now perform searches with each generated query
-      const allContexts: ResearchContext[] = [];
-      for (const searchQuery of searchQueries) {
-        console.log('Searching web with query:', searchQuery);
-        
-        // Build query parameters
-        const params = new URLSearchParams({
-          q: searchQuery,
-          api_key: this.serpapiKey,
-          engine: 'google',
-          google_domain: 'google.com',
-          gl: 'us',
-          hl: 'en'
-        });
-        
-        const url = `${API_ENDPOINTS.SERPAPI}?${params.toString()}`;
-        console.log('Full URL:', url.replace(this.serpapiKey, '[REDACTED]'));
-        
-        const response = await this.fetchWithTimeout(url, { 
-          method: "GET",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
 
-        if (!response.ok) {
-          const text = await response.text();
-          console.error('SerpAPI error response:', text);
-          throw new Error(`Failed to search web: ${response.status} ${response.statusText} - ${text}`);
-        }
-
-        const data = await response.json();
-        if (!data.organic_results || !Array.isArray(data.organic_results)) {
-          console.error('Unexpected response structure:', data);
-          throw new Error('Invalid search results format');
-        }
-
-        for (const result of data.organic_results.slice(0, 3)) {
-          const url = result.link || '';
-          const pageContent = result.snippet || result.title || '';
-          
-          // Add directly to contexts without additional API calls
-          allContexts.push({
-            source: url,
-            content: pageContent
-          });
-        }
+      // Validate search queries
+      if (this.searchQueries.length === 0) {
+        console.warn('No search queries generated, proceeding with analysis anyway');
       }
-      return allContexts;
+
+      return this.searchQueries.map((searchQuery) => ({
+        source: searchQuery,
+        content: searchQuery
+      }));
     } catch (error) {
-      console.error('Search web error:', error);
-      throw error;
+      console.error('Search queries generation error:', error);
+      // Add more context to the error
+      const enhancedError = new Error(`Search queries generation failed: ${error.message}`);
+      enhancedError.stack = error.stack;
+      throw enhancedError;
     }
   }
 

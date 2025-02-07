@@ -1,17 +1,39 @@
+import { Message } from './types';
+import { ArchitectReview } from './architect';
+import { ENHANCED_THINKING_TEMPLATE } from './storage';
+
 export type QueryType = 'CODE' | 'EXPLANATION' | 'RESEARCH';
 export type InterfaceType = 'GENERAL' | 'RESEARCHER' | 'CODER';
 
 export interface ThinkingStep {
-  reasoning: string;
-  verification: string;
-  reflection: string;
-  conclusion: string;
+  reasoning: {
+    research: {
+      methodology: string[];
+      validation: string[];
+    };
+    architecture: {
+      design: string[];
+      review: string[];
+    };
+  };
+  implementation: {
+    code: {
+      quality: string[];
+      security: string[];
+    };
+    documentation: {
+      technical: string[];
+      user: string[];
+    };
+  };
 }
 
-export interface VersionInfo {
-  version: string;
-  timestamp: number;
-  changes: string[];
+export interface ResponseHandler {
+  followUp: (context: any) => string[];
+  explain: (context: any) => string;
+  examples: (context: any) => string[];
+  newTopic: () => void;
+  architectReview: (context: any) => ArchitectReview;
 }
 
 export interface PromptConfig {
@@ -23,26 +45,71 @@ export interface PromptConfig {
   versionTracking: boolean;
   allowsFileAttachments: boolean;
   maxIterations: number;
+  responseHandlers: ResponseHandler;
 }
 
-const THINKING_TEMPLATE: ThinkingStep = {
-  reasoning: `[THINK]
-1. Initial Problem Analysis
-2. Approach Identification
-3. Step-by-step Solution`,
-  
-  verification: `[VERIFY]
-1. Solution Correctness
-2. Edge Cases
-3. Performance Considerations`,
-  
-  reflection: `[REFLECT]
-1. Alternative Approaches
-2. Trade-offs
-3. Learning Points`,
-  
-  conclusion: `[CONCLUDE]
-Final solution with key insights`
+const ENHANCED_THINKING_TEMPLATE: ThinkingStep = {
+  reasoning: {
+    research: {
+      methodology: [
+        'Define the research question',
+        'Conduct literature review',
+        'Design the study',
+        'Collect and analyze data',
+        'Draw conclusions'
+      ],
+      validation: [
+        'Check for bias',
+        'Ensure reliability',
+        'Validate results',
+        'Consider limitations'
+      ]
+    },
+    architecture: {
+      design: [
+        'Define the system architecture',
+        'Identify components and interactions',
+        'Design the database schema',
+        'Plan for scalability'
+      ],
+      review: [
+        'Review the system design',
+        'Check for security vulnerabilities',
+        'Ensure compliance with regulations',
+        'Plan for maintenance'
+      ]
+    }
+  },
+  implementation: {
+    code: {
+      quality: [
+        'Write clean and modular code',
+        'Follow best practices',
+        'Use version control',
+        'Test thoroughly'
+      ],
+      security: [
+        'Implement authentication and authorization',
+        'Use encryption',
+        'Validate user input',
+        'Monitor for security breaches'
+      ]
+    },
+    documentation: {
+      technical: [
+        'Write technical documentation',
+        'Include API documentation',
+        'Document database schema',
+        'Explain system architecture'
+      ],
+      user: [
+        'Write user documentation',
+        'Include user guides',
+        'Document troubleshooting procedures',
+        'Explain system usage'
+      ]
+    }
+  }
 };
 
 const COMMON_GUIDELINES = [
@@ -150,10 +217,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
   "nextSteps": []
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: false,
       allowsFileAttachments: true,
-      maxIterations: 3
+      maxIterations: 3,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the solution',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -172,10 +246,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: false,
       allowsFileAttachments: true,
-      maxIterations: 3
+      maxIterations: 3,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the concept',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     RESEARCH: {
       role: 'Research Analyst',
@@ -194,10 +275,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Uncertainties
 4. Future Directions
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 4
+      maxIterations: 4,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the research',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     }
   },
   
@@ -226,10 +314,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
   "nextSteps": []
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the research',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     CODE: {
       role: 'Senior Software Engineer',
@@ -252,10 +347,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
   }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the implementation',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -274,10 +376,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the concept',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     }
   },
   
@@ -314,10 +423,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
   }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the implementation',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -336,10 +452,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the concept',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     },
     RESEARCH: {
       role: 'Research Analyst',
@@ -358,10 +481,17 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Uncertainties
 4. Future Directions
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+        explain: (context: any) => 'Explanation of the research',
+        examples: (context: any) => ['Example 1', 'Example 2'],
+        newTopic: () => console.log('New topic'),
+        architectReview: (context: any) => ({ review: 'Architect review' })
+      }
     }
   }
 };
@@ -387,10 +517,17 @@ export const ARCHITECT_REVIEW_CONFIG = {
   }
 }
 \`\`\``,
-  thinkingTemplate: THINKING_TEMPLATE,
+  thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
   versionTracking: true,
   allowsFileAttachments: true,
-  maxIterations: 3
+  maxIterations: 3,
+  responseHandlers: {
+    followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+    explain: (context: any) => 'Explanation of the review',
+    examples: (context: any) => ['Example 1', 'Example 2'],
+    newTopic: () => console.log('New topic'),
+    architectReview: (context: any) => ({ review: 'Architect review' })
+  }
 };
 
 // Add specialized review configurations
@@ -412,6 +549,13 @@ export const REVIEW_CONFIGS = {
   }
 }
 \`\`\``,
+    responseHandlers: {
+      followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+      explain: (context: any) => 'Explanation of the code review',
+      examples: (context: any) => ['Example 1', 'Example 2'],
+      newTopic: () => console.log('New topic'),
+      architectReview: (context: any) => ({ review: 'Architect review' })
+    }
   },
   
   RESEARCH_REVIEW: {
@@ -430,6 +574,13 @@ export const REVIEW_CONFIGS = {
   }
 }
 \`\`\``,
+    responseHandlers: {
+      followUp: (context: any) => ['Follow-up question 1', 'Follow-up question 2'],
+      explain: (context: any) => 'Explanation of the research review',
+      examples: (context: any) => ['Example 1', 'Example 2'],
+      newTopic: () => console.log('New topic'),
+      architectReview: (context: any) => ({ review: 'Architect review' })
+    }
   }
 };
 

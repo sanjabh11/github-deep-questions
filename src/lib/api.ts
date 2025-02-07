@@ -43,11 +43,11 @@ const ARCHITECT_TIMEOUT = 120000; // 120 seconds for architect review
 
 // API Endpoints
 export const API_ENDPOINTS = {
-  OPENROUTER: "https://openrouter.ai/api/v1/chat/completions",  // Use direct URL instead of proxy
-  SERPAPI: "/api/proxy/serpapi",
-  JINA: "/api/proxy/jina",
-  GEMINI: "/api/proxy/gemini",
-  DEEPSEEK: "/api/proxy/deepseek"
+  OPENROUTER: "https://openrouter.ai/api/v1",
+  SERPAPI: "https://serpapi.com",
+  JINA: "https://api.jina.ai/v1",
+  GEMINI: "https://generativelanguage.googleapis.com/v1beta",
+  DEEPSEEK: "https://api.deepseek.com/v1"
 } as const;
 
 export const saveApiKeys = (keys: { [key: string]: string }) => {

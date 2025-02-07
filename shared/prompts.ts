@@ -25,6 +25,24 @@ export interface PromptConfig {
   maxIterations: number;
 }
 
+export interface ContextState {
+  currentTopic: string;
+  previousResponses: Array<{
+    type: QueryType;
+    response: any;
+    timestamp: number;
+  }>;
+  followUpQuestions: string[];
+  exampleRequests: string[];
+  architectReviews: any[];
+}
+
+export interface StorageConfig {
+  storageKey: string;
+  maxHistoryItems: number;
+  version: string;
+}
+
 const THINKING_TEMPLATE: ThinkingStep = {
   reasoning: `[THINK]
 1. Initial Problem Analysis
@@ -128,8 +146,98 @@ OUTPUT STRUCTURE:
   }
 };
 
+// Storage configurations for each interface
+export const STORAGE_CONFIGS: Record<InterfaceType, StorageConfig> = {
+  GENERAL: {
+    storageKey: 'general_assistant_storage',
+    maxHistoryItems: 50,
+    version: '1.0.0'
+  },
+  RESEARCHER: {
+    storageKey: 'deep_researcher_storage',
+    maxHistoryItems: 100,
+    version: '1.0.0'
+  },
+  CODER: {
+    storageKey: 'deep_coder_storage',
+    maxHistoryItems: 75,
+    version: '1.0.0'
+  }
+};
+
+// Enhanced thinking template with metadata
+const ENHANCED_THINKING_TEMPLATE: ThinkingStep & { metadata: any } = {
+  reasoning: `[THINK]
+1. Initial Context Analysis
+   - Problem scope
+   - Available resources
+   - Constraints
+2. Approach Formulation
+   - Methodology selection
+   - Tool identification
+   - Risk assessment
+3. Solution Architecture
+   - Component design
+   - Integration points
+   - Implementation plan`,
+  
+  verification: `[VERIFY]
+1. Solution Validation
+   - Correctness check
+   - Edge case analysis
+   - Performance impact
+2. Security Assessment
+   - Vulnerability scan
+   - Access control review
+   - Data protection
+3. Quality Assurance
+   - Code standards
+   - Documentation
+   - Test coverage`,
+  
+  reflection: `[REFLECT]
+1. Solution Analysis
+   - Strengths
+   - Limitations
+   - Trade-offs
+2. Alternative Approaches
+   - Different methods
+   - Pros and cons
+   - Why current chosen
+3. Future Considerations
+   - Scalability
+   - Maintainability
+   - Evolution path`,
+  
+  conclusion: `[CONCLUDE]
+1. Final Solution
+   - Implementation details
+   - Usage guidelines
+   - Known limitations
+2. Next Steps
+   - Action items
+   - Follow-up tasks
+   - Documentation needs`,
+  
+  metadata: {
+    version: '2.0.0',
+    lastUpdated: new Date().toISOString(),
+    contextId: '',
+    dependencies: [],
+    tags: []
+  }
+};
+
 // Interface-specific configurations
-export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptConfig>> = {
+export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptConfig & {
+  responseHandlers: {
+    followUp: (context: ContextState) => string[];
+    explain: (context: ContextState) => string;
+    examples: (context: ContextState) => string[];
+    newTopic: () => void;
+    architectReview: (context: ContextState) => any;
+  }
+}>> = {
   GENERAL: {
     CODE: {
       role: 'General Assistant',
@@ -145,15 +253,43 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 **Solution:**
 \`\`\`json
 {
+  "context": {
+    "topic": "",
+    "scope": "",
+    "requirements": []
+  },
   "explanation": "",
   "code": "",
-  "nextSteps": []
+  "examples": [],
+  "nextSteps": [],
+  "metadata": {
+    "timestamp": "",
+    "version": "",
+    "confidence": ""
+  }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
-      versionTracking: false,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
+      versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 3
+      maxIterations: 3,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you explain more about the implementation details?',
+          'What are the potential edge cases?',
+          'How can we optimize this solution?'
+        ],
+        explain: (context) => 'Detailed explanation of the current solution...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -172,10 +308,27 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
-      versionTracking: false,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
+      versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 3
+      maxIterations: 3,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you provide more examples?',
+          'How does this relate to other concepts?',
+          'What are the key takeaways?'
+        ],
+        explain: (context) => 'Detailed explanation of the concept...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     },
     RESEARCH: {
       role: 'Research Analyst',
@@ -194,10 +347,27 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Uncertainties
 4. Future Directions
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 4
+      maxIterations: 3,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you provide more information on the research?',
+          'How does this relate to other studies?',
+          'What are the implications of the findings?'
+        ],
+        explain: (context) => 'Detailed explanation of the research...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     }
   },
   
@@ -207,29 +377,66 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
       context: SPECIALIZED_PROMPTS.DEEP_RESEARCHER.ANALYSIS,
       guidelines: [
         ...COMMON_GUIDELINES,
-        'Analyze multiple sources',
-        'Consider historical context',
-        'Evaluate future implications',
-        'Validate information accuracy',
-        'Provide comprehensive citations'
+        'Perform systematic research analysis',
+        'Use meta-analysis techniques',
+        'Evaluate source credibility',
+        'Track research methodology',
+        'Maintain citation standards'
       ],
       responseFormat: `
 **Research Analysis:**
 \`\`\`json
 {
-  "searchQueries": [],
-  "findings": [],
-  "analysis": "",
-  "implications": [],
-  "sources": [],
-  "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "nextSteps": []
+  "context": {
+    "topic": "",
+    "scope": "",
+    "methodology": ""
+  },
+  "research": {
+    "searchQueries": [],
+    "sources": {
+      "academic": [],
+      "industry": [],
+      "documentation": []
+    },
+    "findings": [],
+    "analysis": "",
+    "synthesis": "",
+    "gaps": []
+  },
+  "quality": {
+    "sourceCredibility": "HIGH" | "MEDIUM" | "LOW",
+    "evidenceStrength": "HIGH" | "MEDIUM" | "LOW",
+    "confidenceScore": number
+  },
+  "metadata": {
+    "timestamp": "",
+    "version": "",
+    "researchMethod": ""
+  }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'What are the key research gaps?',
+          'Can you explain the methodology in detail?',
+          'How reliable are the sources?'
+        ],
+        explain: (context) => 'Detailed explanation of research findings...',
+        examples: (context) => ['Research Example 1...', 'Research Example 2...'],
+        newTopic: () => { /* Reset research context */ },
+        architectReview: (context) => ({
+          review: {
+            methodology: [],
+            findings: [],
+            recommendations: []
+          }
+        })
+      }
     },
     CODE: {
       role: 'Senior Software Engineer',
@@ -252,10 +459,27 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
   }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you explain more about the implementation details?',
+          'What are the potential edge cases?',
+          'How can we optimize this solution?'
+        ],
+        explain: (context) => 'Detailed explanation of the implementation...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -274,10 +498,27 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you provide more examples?',
+          'How does this relate to other concepts?',
+          'What are the key takeaways?'
+        ],
+        explain: (context) => 'Detailed explanation of the concept...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     }
   },
   
@@ -287,37 +528,79 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
       context: SPECIALIZED_PROMPTS.DEEP_CODER.ANALYSIS,
       guidelines: [
         ...COMMON_GUIDELINES,
-        'Optimize for performance',
-        'Ensure security best practices',
-        'Consider scalability',
-        'Follow test-driven development',
+        'Implement secure coding practices',
+        'Follow SOLID principles',
+        'Consider system architecture',
+        'Maintain test coverage',
         'Document thoroughly'
       ],
       responseFormat: `
 **Implementation Analysis:**
 \`\`\`json
 {
-  "analysis": {
-    "structure": [],
-    "quality": [],
-    "security": [],
-    "performance": [],
-    "bestPractices": []
+  "context": {
+    "topic": "",
+    "scope": "",
+    "requirements": []
   },
-  "improvements": [],
-  "priority": "HIGH" | "MEDIUM" | "LOW",
-  "solution": {
-    "code": "",
-    "tests": [],
-    "documentation": "",
-    "version": ""
+  "analysis": {
+    "architecture": {
+      "patterns": [],
+      "components": [],
+      "interfaces": []
+    },
+    "security": {
+      "vulnerabilities": [],
+      "mitigations": [],
+      "recommendations": []
+    },
+    "quality": {
+      "metrics": {},
+      "improvements": [],
+      "risks": []
+    }
+  },
+  "implementation": {
+    "code": {
+      "files": [],
+      "changes": [],
+      "tests": []
+    },
+    "documentation": {
+      "setup": "",
+      "usage": "",
+      "api": ""
+    }
+  },
+  "metadata": {
+    "timestamp": "",
+    "version": "",
+    "reviewStatus": ""
   }
 }
 \`\`\``,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'What are the security implications?',
+          'Can you explain the architectural decisions?',
+          'How can we improve performance?'
+        ],
+        explain: (context) => 'Detailed explanation of implementation...',
+        examples: (context) => ['Code Example 1...', 'Code Example 2...'],
+        newTopic: () => { /* Reset coding context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: [],
+            maintenance: []
+          }
+        })
+      }
     },
     EXPLANATION: {
       role: 'Technical Educator',
@@ -336,10 +619,27 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Examples
 4. Implications
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you provide more examples?',
+          'How does this relate to other concepts?',
+          'What are the key takeaways?'
+        ],
+        explain: (context) => 'Detailed explanation of the concept...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     },
     RESEARCH: {
       role: 'Research Analyst',
@@ -358,78 +658,28 @@ export const INTERFACE_CONFIGS: Record<InterfaceType, Record<QueryType, PromptCo
 3. Uncertainties
 4. Future Directions
 `,
-      thinkingTemplate: THINKING_TEMPLATE,
+      thinkingTemplate: ENHANCED_THINKING_TEMPLATE,
       versionTracking: true,
       allowsFileAttachments: true,
-      maxIterations: 5
+      maxIterations: 5,
+      responseHandlers: {
+        followUp: (context) => [
+          'Can you provide more information on the research?',
+          'How does this relate to other studies?',
+          'What are the implications of the findings?'
+        ],
+        explain: (context) => 'Detailed explanation of the research...',
+        examples: (context) => ['Example 1...', 'Example 2...'],
+        newTopic: () => { /* Reset context */ },
+        architectReview: (context) => ({
+          review: {
+            architecture: [],
+            security: [],
+            performance: []
+          }
+        })
+      }
     }
-  }
-};
-
-export const ARCHITECT_REVIEW_CONFIG = {
-  role: 'Technical Architect',
-  context: 'You are reviewing technical implementations',
-  guidelines: [
-    'Evaluate architecture and design',
-    'Check for potential issues',
-    'Suggest improvements',
-    'Track version history',
-  ],
-  responseFormat: `
-**Review:**
-\`\`\`json
-{
-  "review": {
-    "criticalIssues": [],
-    "potentialProblems": [],
-    "improvements": [],
-    "versionAnalysis": {}
-  }
-}
-\`\`\``,
-  thinkingTemplate: THINKING_TEMPLATE,
-  versionTracking: true,
-  allowsFileAttachments: true,
-  maxIterations: 3
-};
-
-// Add specialized review configurations
-export const REVIEW_CONFIGS = {
-  CODE_REVIEW: {
-    ...ARCHITECT_REVIEW_CONFIG,
-    context: SPECIALIZED_PROMPTS.DEEP_CODER.ANALYSIS,
-    responseFormat: `
-**Code Review:**
-\`\`\`json
-{
-  "review": {
-    "criticalIssues": [],
-    "potentialProblems": [],
-    "improvements": [],
-    "versionAnalysis": {},
-    "securityConcerns": [],
-    "performanceImpact": "HIGH" | "MEDIUM" | "LOW"
-  }
-}
-\`\`\``,
-  },
-  
-  RESEARCH_REVIEW: {
-    ...ARCHITECT_REVIEW_CONFIG,
-    context: SPECIALIZED_PROMPTS.DEEP_RESEARCHER.ANALYSIS,
-    responseFormat: `
-**Research Review:**
-\`\`\`json
-{
-  "review": {
-    "methodologyAssessment": [],
-    "dataQuality": [],
-    "findingsValidity": [],
-    "limitations": [],
-    "suggestedImprovements": []
-  }
-}
-\`\`\``,
   }
 };
 
