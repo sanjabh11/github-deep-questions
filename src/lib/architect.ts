@@ -1,4 +1,4 @@
-import { Message } from "./api";
+import { Message } from "./types";
 
 export interface ArchitectReview {
   criticalIssues: string[];
@@ -23,6 +23,8 @@ export const callArchitectLLM = async (
       }
       return `${prefix} ${m.content.trim()}`;
     }).join('\n\n');
+
+    console.log('Sending request to Gemini with formatted messages:', formattedMessages);
 
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent", {
       method: "POST",
@@ -80,21 +82,42 @@ RESPONSE FORMAT:
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('Gemini API error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
       throw new Error(`Architect LLM API call failed: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    console.log('Gemini API response:', data);
     
     if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error('Invalid response format from Gemini API:', data);
       throw new Error('Invalid response format from Gemini API');
     }
 
     const reviewText = data.candidates[0].content.parts[0].text.trim();
+    console.log('Raw review text:', reviewText);
     
     try {
       // Remove any potential markdown formatting
-      const cleanedText = reviewText.replace(/```json\n?|\n?```/g, '').trim();
-      const parsedReview = JSON.parse(cleanedText);
+      const cleanedText = reviewText
+        .replace(/```json\n?|\n?```/g, '')
+        .replace(/^[`\s]+|[`\s]+$/g, '') // Remove any remaining backticks and whitespace
+        .trim();
+      
+      console.log('Cleaned review text:', cleanedText);
+      
+      let parsedReview: ArchitectReview;
+      try {
+        parsedReview = JSON.parse(cleanedText);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Failed text:', cleanedText);
+        throw new Error('Failed to parse review JSON');
+      }
       
       // Validate the parsed object structure and content
       if (!parsedReview || typeof parsedReview !== 'object') {
@@ -104,12 +127,14 @@ RESPONSE FORMAT:
       // Ensure all required arrays exist and are arrays
       ['criticalIssues', 'potentialProblems', 'improvements'].forEach(field => {
         if (!Array.isArray(parsedReview[field])) {
+          console.warn(`Field ${field} is not an array, initializing empty array`);
           parsedReview[field] = [];
         }
       });
 
       // Ensure verdict is valid
       if (!['APPROVED', 'NEEDS_REVISION'].includes(parsedReview.verdict)) {
+        console.warn('Invalid verdict, defaulting based on critical issues');
         parsedReview.verdict = parsedReview.criticalIssues.length > 0 ? 'NEEDS_REVISION' : 'APPROVED';
       }
 
@@ -126,8 +151,14 @@ RESPONSE FORMAT:
 
       return parsedReview;
     } catch (parseError) {
-      console.error('Failed to parse review:', parseError);
-      console.error('Raw review text:', reviewText);
+      console.error('Failed to parse review:', {
+        error: parseError instanceof Error ? {
+          message: parseError.message,
+          name: parseError.name,
+          stack: parseError.stack
+        } : parseError,
+        reviewText
+      });
       
       // Return a fallback review instead of throwing
       return {
@@ -138,9 +169,24 @@ RESPONSE FORMAT:
       };
     }
   } catch (error) {
-    console.error("Error calling Architect LLM:", error);
+    let errorMessage = 'Unknown error occurred';
+    let errorDetails = {};
+
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      errorDetails = {
+        name: error.name,
+        stack: error.stack
+      };
+    }
+
+    console.error("Error calling Architect LLM:", {
+      message: errorMessage,
+      details: errorDetails
+    });
+
     return {
-      criticalIssues: ['Failed to complete automatic review: ' + (error instanceof Error ? error.message : String(error))],
+      criticalIssues: ['Failed to complete automatic review: ' + errorMessage],
       potentialProblems: ['Review system encountered an error'],
       improvements: ['Retry the review or manually inspect the solution'],
       verdict: 'NEEDS_REVISION'

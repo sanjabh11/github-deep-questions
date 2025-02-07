@@ -3,7 +3,9 @@ import { Message } from "./api";
 export class Coder {
   private abortController: AbortController | null = null;
 
-  constructor(private geminiKey: string) {}
+  constructor(private geminiKey: string = import.meta.env.VITE_GEMINI_API_KEY) {
+    console.log("Gemini API Key:", this.geminiKey); // Log the key for debugging
+  }
 
   public abort() {
     if (this.abortController) {
@@ -42,7 +44,7 @@ export class Coder {
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `You are a SENIOR SOFTWARE ENGINEER with expertise in code analysis and implementation.
+                text: `You are a SENIOR SOFTWARE ENGINEER with expertise in code creation, analysis and implementation.
 
 CONTEXT:
 Query: ${query}
@@ -134,6 +136,80 @@ RESPONSE FORMAT:
         addMessage({
           type: "system",
           content: `❌ Error during analysis: ${error instanceof Error ? error.message : 'Unknown error'}`
+        });
+      }
+      return messages;
+    }
+  }
+
+  public async generateCode(prompt: string, onProgress?: (message: Message) => void): Promise<Message[]> {
+    const messages: Message[] = [];
+    const addMessage = (message: Message) => {
+      messages.push(message);
+      onProgress?.(message);
+    };
+
+    this.abortController = new AbortController();
+
+    try {
+      addMessage({
+        type: "system",
+        content: "🔍 Generating code based on the prompt..."
+      });
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": this.geminiKey
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `You are a SENIOR SOFTWARE ENGINEER tasked with generating code based on the following prompt:
+
+PROMPT:
+${prompt}
+
+Please provide a complete and functional code snippet for the requested functionality.`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          }),
+          signal: this.abortController.signal
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Gemini API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedCode = data.candidates[0].content.parts[0].text;
+
+      addMessage({
+        type: "answer",
+        content: generatedCode
+      });
+
+      return messages;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        addMessage({
+          type: "system",
+          content: "❌ Code generation cancelled."
+        });
+      } else {
+        addMessage({
+          type: "system",
+          content: `❌ Error during code generation: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
       }
       return messages;
