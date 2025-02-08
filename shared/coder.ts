@@ -154,9 +154,66 @@ RESPONSE FORMAT:
     try {
       addMessage({
         type: "system",
-        content: "🔍 Generating code based on the prompt..."
+        content: "🎨 Analyzing visualization requirements..."
       });
 
+      // First, analyze the mathematical context
+      const mathAnalysis = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": this.geminiKey
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: `You are a MATHEMATICS EXPERT. Analyze this visualization request and provide mathematical context:
+
+REQUEST: ${prompt}
+
+Please provide:
+1. Mathematical background
+2. Key equations/theorems
+3. Visualization requirements
+4. Numerical considerations
+5. Edge cases to handle
+
+Format your response as JSON:
+{
+  "background": "string",
+  "equations": ["string"],
+  "visualizationNeeds": ["string"],
+  "numericalConsiderations": ["string"],
+  "edgeCases": ["string"]
+}`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.3,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            }
+          }),
+          signal: this.abortController.signal
+        }
+      );
+
+      if (!mathAnalysis.ok) {
+        throw new Error(`Math analysis error: ${mathAnalysis.status}`);
+      }
+
+      const mathContext = await mathAnalysis.json();
+      const mathDetails = JSON.parse(mathContext.candidates[0].content.parts[0].text);
+
+      addMessage({
+        type: "system",
+        content: "🎨 Generating optimized visualization code..."
+      });
+
+      // Generate the actual code with mathematical context
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
         {
@@ -168,19 +225,112 @@ RESPONSE FORMAT:
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `You are a SENIOR SOFTWARE ENGINEER tasked with generating code based on the following prompt:
+                text: `You are a SENIOR SOFTWARE ENGINEER specializing in web-based scientific visualization and interactive animations.
 
-PROMPT:
-${prompt}
+TASK:
+Generate complete, self-contained HTML/CSS/JavaScript code for: ${prompt}
 
-Please provide a complete and functional code snippet for the requested functionality.`
+MATHEMATICAL CONTEXT:
+${JSON.stringify(mathDetails, null, 2)}
+
+REQUIREMENTS:
+1. Code must run directly in modern browsers
+2. Use Three.js for 3D rendering (latest version, via CDN)
+3. Implement precise mathematical calculations
+4. Include comprehensive error handling
+5. Generate all visual elements programmatically
+
+CODE STRUCTURE:
+1. HTML5
+   - Viewport and meta setup
+   - Canvas container
+   - Loading indicators
+   - UI controls
+   - Error messages
+
+2. CSS
+   - Responsive design
+   - Professional UI
+   - Loading animations
+   - Error states
+
+3. JavaScript
+   - ES6+ modules
+   - Three.js setup
+   - Math utilities
+   - Camera controls
+   - Performance optimization
+   - Error handling
+   - Debug logging
+
+4. Mathematical Implementation
+   - Precise calculations
+   - Error bounds
+   - Numerical stability
+   - Unit handling
+
+5. Visualization
+   - Interactive 3D scene
+   - Proper axes/labels
+   - Camera controls
+   - Performance monitoring
+
+RESPONSE FORMAT:
+\`\`\`html
+<!-- index.html -->
+<!-- Complete HTML code with proper structure -->
+\`\`\`
+
+\`\`\`css
+/* styles.css */
+/* Complete CSS code with responsive design */
+\`\`\`
+
+\`\`\`javascript
+// main.js
+// Complete JavaScript code with proper organization
+
+// mathUtils.js
+// Mathematical utility functions
+
+// sceneSetup.js
+// Three.js scene setup and management
+
+// controls.js
+// User interface and camera controls
+
+// visualization.js
+// Core visualization logic
+\`\`\`
+
+\`\`\`markdown
+# Mathematical Background
+${mathDetails.background}
+
+## Key Equations
+${mathDetails.equations.join('\n')}
+
+## Usage Instructions
+1. Open index.html in a modern browser
+2. Interact with controls to explore
+3. Performance may vary by device
+
+## Browser Support
+- Chrome 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
+
+## Known Limitations
+${mathDetails.numericalConsiderations.join('\n')}
+\`\`\``
               }]
             }],
             generationConfig: {
               temperature: 0.7,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 2048,
+              maxOutputTokens: 8192,
             }
           }),
           signal: this.abortController.signal
@@ -188,7 +338,7 @@ Please provide a complete and functional code snippet for the requested function
       );
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        throw new Error(`Code generation error: ${response.status}`);
       }
 
       const data = await response.json();
@@ -209,7 +359,7 @@ Please provide a complete and functional code snippet for the requested function
       } else {
         addMessage({
           type: "system",
-          content: `❌ Error during code generation: ${error instanceof Error ? error.message : 'Unknown error'}`
+          content: `❌ Error during generation: ${error instanceof Error ? error.message : 'Unknown error'}`
         });
       }
       return messages;

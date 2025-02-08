@@ -40,10 +40,12 @@ export default defineConfig(({ mode }) => ({
             const authHeader = req.headers['authorization'];
             if (authHeader) {
               proxyReq.setHeader('Authorization', authHeader);
-              proxyReq.setHeader('HTTP-Referer', 'http://localhost:8080');
-              proxyReq.setHeader('X-Title', 'GitHub Deep Questions');
-              proxyReq.setHeader('Content-Type', 'application/json');
+            } else {
+              console.warn('Authorization header missing from original request!');
             }
+            proxyReq.setHeader('HTTP-Referer', 'http://localhost:8080');
+            proxyReq.setHeader('X-Title', 'Deep Researcher');
+            proxyReq.setHeader('Content-Type', 'application/json');
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
             console.log('Received OpenRouter Response:', req.url, 'Status:', proxyRes.statusCode);

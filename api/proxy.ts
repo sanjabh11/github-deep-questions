@@ -97,10 +97,10 @@ const serpApiHandler: RequestHandler = async (req, res, next) => {
 // OpenRouter proxy
 const openRouterHandler: RequestHandler = async (req, res, next) => {
   try {
-    const apiKey = req.headers.authorization?.replace('Bearer ', '');
+    const authHeader = req.headers.authorization;
     
-    if (!apiKey) {
-      res.status(401).json({ error: 'API key is required' });
+    if (!authHeader) {
+      res.status(401).json({ error: 'Authorization header is required' });
       return;
     }
 
@@ -108,7 +108,7 @@ const openRouterHandler: RequestHandler = async (req, res, next) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': authHeader,
         'X-Title': 'Deep Researcher',
       },
       body: JSON.stringify(req.body)
