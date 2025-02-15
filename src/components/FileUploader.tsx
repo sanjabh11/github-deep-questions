@@ -1,128 +1,131 @@
-import { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
-import { saveTemporaryFile } from "@/lib/storage";
-import { FileUpload } from "@/lib/types";
-import { X } from "lucide-react";
+import { FileUpload, storage } from '@/lib/storage';
+import { cn } from '@/lib/utils';
+import { Loader2, File, X } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
 
 interface FileUploaderProps {
-  onUpload: (files: FileUpload[]) => void;
-  onRemove: (fileId: string) => void;
-  files: FileUpload[];
-  acceptedTypes?: string;
-  maxSize?: number;
-  disabled?: boolean;
+  onFilesChange: (files: FileUpload[]) => void;
+  className?: string;
 }
 
-const MIME_TYPES = {
-  '.pdf': 'application/pdf',
-  '.doc': 'application/msword',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.dcm': 'application/dicom',
-  '.nii': 'application/x-nifti'
-};
+export function FileUploader({ onFilesChange, className }: FileUploaderProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<FileUpload[]>([]);
+  const { toast } = useToast();
 
-export function FileUploader({ 
-  onUpload, 
-  onRemove, 
-  files, 
-  acceptedTypes = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.dcm,.nii",
-  maxSize = 10 * 1024 * 1024, 
-  disabled 
-}: FileUploaderProps) {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const uploadedFiles: FileUpload[] = [];
-    
-    for (const file of acceptedFiles) {
-      try {
-        const fileData = await saveTemporaryFile(file);
-        if (fileData) {
-          uploadedFiles.push({
-            id: fileData.id,
-            name: file.name,
-            size: file.size,
-            type: file.type
+    setIsLoading(true);
+    try {
+      const newFiles: FileUpload[] = [];
+      
+      for (const file of acceptedFiles) {
+        try {
+          const uploadedFile = await storage.saveTemporaryFile(file);
+          if (uploadedFile) {
+            newFiles.push(uploadedFile);
+          }
+        } catch (error) {
+          toast({
+            title: 'Upload Error',
+            description: error instanceof Error ? error.message : 'Failed to upload file',
+            variant: 'destructive'
           });
         }
-      } catch (error) {
-        toast({
-          title: "Upload Failed",
-          description: error instanceof Error ? error.message : "Failed to upload file",
-          variant: "destructive"
-        });
       }
-    }
 
-    if (uploadedFiles.length > 0) {
-      onUpload(uploadedFiles);
+      const updatedFiles = [...uploadedFiles, ...newFiles];
+      setUploadedFiles(updatedFiles);
+      onFilesChange(updatedFiles);
+    } catch (error) {
       toast({
-        title: "Files Uploaded",
-        description: `${uploadedFiles.length} file(s) uploaded successfully.`
+        title: 'Upload Error',
+        description: 'Failed to process files',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [uploadedFiles, onFilesChange, toast]);
+
+  const removeFile = useCallback(async (fileId: string) => {
+    const updatedFiles = uploadedFiles.filter(f => f.id !== fileId);
+    setUploadedFiles(updatedFiles);
+    onFilesChange(updatedFiles);
+    
+    // Update storage
+    try {
+      await storage.saveTemporaryFiles(updatedFiles);
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update file storage',
+        variant: 'destructive'
       });
     }
-  }, [onUpload]);
-
-  // Convert file extensions to MIME types
-  const accept = acceptedTypes.split(',').reduce((acc, ext) => {
-    const mime = MIME_TYPES[ext as keyof typeof MIME_TYPES];
-    if (mime) {
-      acc[mime] = [ext];
-    }
-    return acc;
-  }, {} as Record<string, string[]>);
+  }, [uploadedFiles, onFilesChange, toast]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    disabled,
-    maxSize,
-    accept
+    maxSize: 10 * 1024 * 1024, // 10MB
+    accept: {
+      'text/plain': ['.txt'],
+      'text/markdown': ['.md'],
+      'application/json': ['.json'],
+      'text/javascript': ['.js', '.ts', '.jsx', '.tsx'],
+      'text/x-python': ['.py']
+    }
   });
 
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", className)}>
       <div
         {...getRootProps()}
-        className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer
-          ${isDragActive ? 'border-primary bg-primary/10' : 'border-border'}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary hover:bg-primary/5'}`}
+        className={cn(
+          "border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors",
+          isDragActive ? "border-primary bg-primary/10" : "border-muted-foreground/20",
+          isLoading && "opacity-50 cursor-not-allowed"
+        )}
       >
-        <input {...getInputProps()} />
-        <p className="text-sm text-muted-foreground">
-          {isDragActive
-            ? "Drop the files here..."
-            : "Drag & drop files here, or click to select"}
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Supported: PDF, DOC, DOCX, Images, DICOM, NIfTI
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Max size: {Math.round(maxSize / 1024 / 1024)}MB
-        </p>
+        <input {...getInputProps()} disabled={isLoading} />
+        {isLoading ? (
+          <div className="flex items-center justify-center space-x-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Uploading...</span>
+          </div>
+        ) : isDragActive ? (
+          <p>Drop the files here...</p>
+        ) : (
+          <p>Drag & drop files here, or click to select files</p>
+        )}
       </div>
 
-      {files.length > 0 && (
-        <div className="space-y-2">
-          {files.map((file) => (
-            <div
+      {/* File list */}
+      {uploadedFiles.length > 0 && (
+        <ul className="space-y-2">
+          {uploadedFiles.map((file) => (
+            <li
               key={file.id}
-              className="flex items-center justify-between p-2 bg-muted rounded-md"
+              className="flex items-center justify-between p-2 rounded-lg bg-muted"
             >
-              <span className="text-sm truncate flex-1">{file.name}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onRemove(file.id)}
-                className="h-8 w-8"
+              <div className="flex items-center space-x-2">
+                <File className="h-4 w-4" />
+                <span className="text-sm">{file.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  ({Math.round(file.size / 1024)}KB)
+                </span>
+              </div>
+              <button
+                onClick={() => removeFile(file.id)}
+                className="p-1 hover:bg-destructive/10 rounded-full transition-colors"
+                aria-label="Remove file"
               >
                 <X className="h-4 w-4" />
-              </Button>
-            </div>
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ export interface FileUpload {
 }
 
 export interface Message {
-  type: 'user' | 'system' | 'thinking' | 'answer';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: number;
 }
@@ -47,4 +47,48 @@ export interface ResearchContext {
   content: string;
   confidence?: number;
   relevance?: number;
+}
+
+export enum InterfaceType {
+  GENERAL = 'GENERAL',
+  RESEARCHER = 'RESEARCHER',
+  CODER = 'CODER',
+  GENERAL_WITH_EXPLANATION = 'GENERAL_WITH_EXPLANATION',
+  DEEP_RESEARCHER = 'DEEP_RESEARCHER',
+  CODE_GENERATION = 'CODE_GENERATION'
+}
+
+export enum QueryType {
+  CODE = 'CODE',
+  EXPLANATION = 'EXPLANATION',
+  RESEARCH = 'RESEARCH'
+}
+
+export interface ProcessRequest {
+  query: string;
+  interfaceType: InterfaceType;
+  queryType: QueryType;
+  files?: Array<{ 
+    name: string; 
+    content: string 
+  }>;
+  messages?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }>;
+}
+
+export interface BaseResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+}
+
+export interface StreamEvent {
+  type: 'thinking' | 'progress' | 'complete' | 'error';
+  thought?: string;
+  progress?: string;
+  error?: string;
+  data?: any;
+  content?: string;
 } 

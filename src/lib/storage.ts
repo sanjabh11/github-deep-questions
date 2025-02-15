@@ -1,237 +1,170 @@
-import { ChatMode, FileUpload, Message } from './types';
-import { ArchitectReview } from './architect';
+import { Message, ChatHistory, ThoughtProcess, ArchitectReview } from '../../api/types/messages.js';
 
-// Interface and storage types
-export type InterfaceType = 'GENERAL' | 'RESEARCHER' | 'CODER';
+const STORAGE_KEYS = {
+  CHAT_MODE: 'chat_mode',
+  CHAT_HISTORY: 'chat_history',
+  USER_PREFERENCES: 'user_preferences',
+  TEMP_FILES: 'temp_files'
+} as const;
 
-export interface ContextState {
-  currentTopic: string;
-  messages: Message[];
-  previousResponses: Array<{
-    type: string;
-    response: any;
-    timestamp: number;
-  }>;
-  followUpQuestions: string[];
-  exampleRequests: string[];
-  architectReviews: ArchitectReview[];
+export type ChatMode = 'general' | 'researcher' | 'coder';
+
+export interface UserPreferences {
+  audioEnabled: boolean;
+  theme: 'light' | 'dark' | 'system';
+  fontSize: 'small' | 'medium' | 'large';
 }
 
-export interface StorageConfig {
-  storageKey: string;
-  maxHistoryItems: number;
-  version: string;
+export interface FileUpload {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  content: string | ArrayBuffer;
 }
 
-// Storage configurations for each interface
-const STORAGE_CONFIGS: Record<InterfaceType, StorageConfig> = {
-  GENERAL: {
-    storageKey: 'general_assistant_storage',
-    maxHistoryItems: 50,
-    version: '1.0.0'
-  },
-  RESEARCHER: {
-    storageKey: 'deep_researcher_storage',
-    maxHistoryItems: 100,
-    version: '1.0.0'
-  },
-  CODER: {
-    storageKey: 'deep_coder_storage',
-    maxHistoryItems: 75,
-    version: '1.0.0'
-  }
-};
-
-// Enhanced thinking template with research and architectural review capabilities
-export const ENHANCED_THINKING_TEMPLATE = {
-  reasoning: {
-    research: {
-      methodology: [
-        'Source evaluation',
-        'Data collection',
-        'Analysis approach'
-      ],
-      validation: [
-        'Credibility check',
-        'Cross-reference',
-        'Peer review'
-      ]
-    },
-    architecture: {
-      design: [
-        'System components',
-        'Integration points',
-        'Data flow'
-      ],
-      review: [
-        'Performance impact',
-        'Security considerations',
-        'Scalability assessment'
-      ]
-    }
-  },
-  implementation: {
-    code: {
-      quality: [
-        'Best practices',
-        'Design patterns',
-        'Error handling'
-      ],
-      security: [
-        'Input validation',
-        'Authentication',
-        'Authorization'
-      ]
-    },
-    documentation: {
-      technical: [
-        'API documentation',
-        'Setup guides',
-        'Usage examples'
-      ],
-      user: [
-        'User guides',
-        'FAQs',
-        'Troubleshooting'
-      ]
-    }
-  }
-};
-
-// Interface-specific storage management
-export class InterfaceStorage {
-  private config: StorageConfig;
-  private storageKey: string;
-
-  constructor(interfaceType: InterfaceType) {
-    this.config = STORAGE_CONFIGS[interfaceType];
-    this.storageKey = this.config.storageKey;
-  }
-
-  async saveContext(context: ContextState): Promise<void> {
-    try {
-      const currentHistory = await this.loadContext();
-      
-      // Update messages
-      currentHistory.messages = [...currentHistory.messages, ...context.messages];
-      
-      // Update previous responses
-      if (context.previousResponses.length > 0) {
-        currentHistory.previousResponses = [
-          ...currentHistory.previousResponses,
-          context.previousResponses[context.previousResponses.length - 1]
-        ];
-      }
-
-      // Update other state
-      currentHistory.currentTopic = context.currentTopic;
-      currentHistory.followUpQuestions = context.followUpQuestions;
-      currentHistory.exampleRequests = context.exampleRequests;
-      currentHistory.architectReviews = context.architectReviews;
-
-      // Maintain history limits
-      if (currentHistory.previousResponses.length > this.config.maxHistoryItems) {
-        currentHistory.previousResponses = currentHistory.previousResponses.slice(-this.config.maxHistoryItems);
-      }
-      if (currentHistory.messages.length > this.config.maxHistoryItems * 2) {
-        currentHistory.messages = currentHistory.messages.slice(-this.config.maxHistoryItems * 2);
-      }
-
-      localStorage.setItem(this.storageKey, JSON.stringify(currentHistory));
-    } catch (error) {
-      console.error('Failed to save context:', error);
-      throw error;
-    }
-  }
-
-  async loadContext(): Promise<ContextState> {
-    try {
-      const stored = localStorage.getItem(this.storageKey);
-      if (!stored) {
-        return this.getInitialContext();
-      }
-      return JSON.parse(stored);
-    } catch (error) {
-      console.error('Failed to load context:', error);
-      return this.getInitialContext();
-    }
-  }
-
-  async clearContext(): Promise<void> {
-    localStorage.removeItem(this.storageKey);
-  }
-
-  private getInitialContext(): ContextState {
-    return {
-      currentTopic: '',
-      messages: [],
-      previousResponses: [],
-      followUpQuestions: [],
-      exampleRequests: [],
-      architectReviews: []
-    };
-  }
-}
-
-// Export interface-specific storage instances
-export const generalStorage = new InterfaceStorage('GENERAL');
-export const researcherStorage = new InterfaceStorage('RESEARCHER');
-export const coderStorage = new InterfaceStorage('CODER');
-
-// Original file storage functions
-const CHAT_MODE_KEY = 'chat_mode';
-const TEMP_FILES_KEY = 'temp_files';
+const MAX_HISTORY_ITEMS = 50;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export const saveChatMode = (mode: ChatMode) => {
-  localStorage.setItem(CHAT_MODE_KEY, mode);
-};
-
-export const loadChatMode = (): ChatMode => {
-  return (localStorage.getItem(CHAT_MODE_KEY) as ChatMode) || 'default';
-};
-
-export const saveTemporaryFile = async (file: File): Promise<FileUpload | null> => {
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error('File size exceeds 10MB limit');
+// Helper function to safely parse JSON with a default value
+const safeJSONParse = <T>(str: string | null, defaultValue: T): T => {
+  if (!str) return defaultValue;
+  try {
+    return JSON.parse(str) as T;
+  } catch {
+    return defaultValue;
   }
+};
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const fileUpload: FileUpload = {
-          id: crypto.randomUUID(),
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          content: e.target?.result || ''
-        };
+// Individual exports for backward compatibility
+export const saveChatMode = (mode: ChatMode): void => storage.saveChatMode(mode);
+export const loadChatMode = (): ChatMode => storage.loadChatMode();
+export const saveTemporaryFile = async (file: File): Promise<FileUpload | null> => storage.saveTemporaryFile(file);
+export const loadTemporaryFiles = async (): Promise<FileUpload[]> => storage.loadTemporaryFiles();
+export const clearTemporaryFiles = (): void => storage.clearTemporaryFiles();
 
-        const files = await loadTemporaryFiles();
-        files.push(fileUpload);
-        
-        // Only keep last 5 files
-        if (files.length > 5) {
-          files.shift();
-        }
+// Main storage object
+export const storage = {
+  // Chat Mode
+  saveChatMode(mode: ChatMode): void {
+    localStorage.setItem(STORAGE_KEYS.CHAT_MODE, mode);
+  },
 
-        localStorage.setItem(TEMP_FILES_KEY, JSON.stringify(files));
-        resolve(fileUpload);
-      } catch (error) {
-        reject(error);
-      }
+  loadChatMode(): ChatMode {
+    return (localStorage.getItem(STORAGE_KEYS.CHAT_MODE) as ChatMode) || 'general';
+  },
+
+  // Chat History
+  async saveChatHistory(history: ChatHistory): Promise<void> {
+    try {
+      // Trim history to prevent localStorage from getting too large
+      const trimmedHistory: ChatHistory = {
+        ...history,
+        messages: history.messages.slice(-MAX_HISTORY_ITEMS),
+        thoughtProcesses: history.thoughtProcesses.slice(-MAX_HISTORY_ITEMS),
+        architectReviews: history.architectReviews.slice(-MAX_HISTORY_ITEMS)
+      };
+
+      localStorage.setItem(STORAGE_KEYS.CHAT_HISTORY, JSON.stringify(trimmedHistory));
+    } catch (error) {
+      console.error('Failed to save chat history:', error);
+    }
+  },
+
+  loadChatHistory(): ChatHistory {
+    const defaultHistory: ChatHistory = {
+      messages: [],
+      thoughtProcesses: [],
+      architectReviews: [],
+      lastUpdated: Date.now()
     };
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
-};
 
-export const loadTemporaryFiles = async (): Promise<FileUpload[]> => {
-  const stored = localStorage.getItem(TEMP_FILES_KEY);
-  return stored ? JSON.parse(stored) : [];
-};
+    return safeJSONParse(
+      localStorage.getItem(STORAGE_KEYS.CHAT_HISTORY),
+      defaultHistory
+    );
+  },
 
-export const clearTemporaryFiles = () => {
-  localStorage.removeItem(TEMP_FILES_KEY);
+  // User Preferences
+  saveUserPreferences(prefs: UserPreferences): void {
+    localStorage.setItem(STORAGE_KEYS.USER_PREFERENCES, JSON.stringify(prefs));
+  },
+
+  loadUserPreferences(): UserPreferences {
+    const defaultPrefs: UserPreferences = {
+      audioEnabled: false,
+      theme: 'system',
+      fontSize: 'medium'
+    };
+
+    return safeJSONParse(
+      localStorage.getItem(STORAGE_KEYS.USER_PREFERENCES),
+      defaultPrefs
+    );
+  },
+
+  // Temporary File Handling
+  async saveTemporaryFile(file: File): Promise<FileUpload | null> {
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error('File size exceeds 10MB limit');
+    }
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = async (e) => {
+        try {
+          const fileUpload: FileUpload = {
+            id: crypto.randomUUID(),
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            content: e.target?.result || ''
+          };
+
+          const files = await this.loadTemporaryFiles();
+          files.push(fileUpload);
+          
+          // Only keep last 5 files
+          if (files.length > 5) {
+            files.shift();
+          }
+
+          localStorage.setItem(STORAGE_KEYS.TEMP_FILES, JSON.stringify(files));
+          resolve(fileUpload);
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  },
+
+  async loadTemporaryFiles(): Promise<FileUpload[]> {
+    return safeJSONParse(localStorage.getItem(STORAGE_KEYS.TEMP_FILES), []);
+  },
+
+  clearTemporaryFiles(): void {
+    localStorage.removeItem(STORAGE_KEYS.TEMP_FILES);
+  },
+
+  async saveTemporaryFiles(files: FileUpload[]): Promise<void> {
+    try {
+      // Only keep last 5 files
+      const trimmedFiles = files.slice(-5);
+      localStorage.setItem(STORAGE_KEYS.TEMP_FILES, JSON.stringify(trimmedFiles));
+    } catch (error) {
+      console.error('Failed to save temporary files:', error);
+      throw error;
+    }
+  },
+
+  // Clear all storage
+  clearAll(): void {
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+  }
 };

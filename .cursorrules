@@ -1,0 +1,8 @@
+For debugging the existing code enure to 
+Undertale detailed Root Cause Analysis & share the revised process chart with the reasons why this error and how u plan to fix the issue with the revised flow 
+ 
+A. Very important to think deeply and step by step after looking at the whole codebase and suggest the plans to FIX THESE RECURRING ISSUES THINKING 3 STEPS AHEAD before starting to change the code pls…
+B. feel free to surf the @web to fix api related or best practices issues and let me know in case of any questions you have. take your time and see that all the issues are fixed and working code is NOT distruptted. 
+C. to check API related errors use curl command by picking up the reelevent API keys from .env file first. In case of errors check the previous working API settings and end point url first from the @repomix file. if the issues still remaims unresolved look for the @web and API documentation and fix the request format
+D. Once done ensure to test the relevent errors & share the details of the actions before declaring the operation as sucess
+ensure to check the solution using curl command and shared url soon as u update the codes.

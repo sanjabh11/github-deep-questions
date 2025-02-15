@@ -1,4 +1,4 @@
-export type ChatMode = 'default' | 'researcher' | 'coder';
+export type ChatMode = 'general' | 'researcher' | 'coder';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
