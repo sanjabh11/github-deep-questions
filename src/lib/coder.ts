@@ -3,8 +3,18 @@ import { Message } from "./api";
 export class Coder {
   private abortController: AbortController | null = null;
 
-  constructor(private geminiKey: string = import.meta.env.VITE_GEMINI_API_KEY) {
-    console.log("Gemini API Key:", this.geminiKey); // Log the key for debugging
+  constructor() {
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    
+    if (!geminiKey) {
+      const loadedKeys = loadApiKeys();
+      if (!loadedKeys.gemini) {
+        throw new Error("Gemini API key is required for coder mode");
+      }
+      this.geminiKey = loadedKeys.gemini;
+    } else {
+      this.geminiKey = geminiKey;
+    }
   }
 
   public abort() {

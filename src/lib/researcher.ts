@@ -90,6 +90,36 @@ export class Researcher {
     }
   }
 
+  private async parseSearchQueriesResponse(response: string): Promise<string[]> {
+    try {
+      // Replace single quotes with double quotes and clean up the response
+      const cleanedResponse = response
+        .replace(/'/g, '"')
+        .replace(/\n/g, ' ')
+        .trim();
+
+      // Attempt to parse as JSON
+      const parsed = JSON.parse(cleanedResponse);
+      
+      if (Array.isArray(parsed)) {
+        return parsed.map(query => query.toString());
+      } else if (typeof parsed === 'string') {
+        return [parsed];
+      } else if (parsed.queries && Array.isArray(parsed.queries)) {
+        return parsed.queries.map(query => query.toString());
+      }
+      
+      throw new Error('Invalid response format');
+    } catch (error) {
+      console.warn('Failed to parse search queries response, using fallback:', error);
+      // Fallback: split by commas and clean up
+      return response
+        .split(',')
+        .map(query => query.trim())
+        .filter(query => query.length > 0);
+    }
+  }
+
   private async searchWeb(query: string): Promise<ResearchContext[]> {
     try {
       // First generate focused search queries using LLM
@@ -132,10 +162,7 @@ export class Researcher {
       
       let searchQueries: string[];
       try {
-        searchQueries = JSON.parse(searchQueriesData.choices[0].message.content.trim());
-        if (!Array.isArray(searchQueries)) {
-          throw new Error('Response is not an array');
-        }
+        searchQueries = await this.parseSearchQueriesResponse(searchQueriesData.choices[0].message.content.trim());
       } catch (e) {
         console.warn('Failed to parse search queries response, using fallback:', e);
         searchQueries = [query];

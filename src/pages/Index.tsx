@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { InteractionOptions } from "@/components/InteractionOptions";
@@ -17,6 +17,7 @@ import { Volume2, VolumeX, StopCircle } from "lucide-react";
 import { ThoughtProcessDisplay } from "@/components/ThoughtProcess";
 import { ArchitectReview } from "@/components/ArchitectReview";
 import { callArchitectLLM } from "@/lib/architect";
+import { InteractionHandler } from "@/lib/interactionHandler";
 
 // Mode-specific components
 const DefaultMode = ({ children, isActive }) => (
@@ -70,6 +71,15 @@ const Index = () => {
   const [architectReview, setArchitectReview] = useState(null);
   const { toast } = useToast();
   const audioManager = new AudioManager();
+  const interactionHandler = useMemo(() => new InteractionHandler({
+    messages,
+    thoughtProcess,
+    setMessages,
+    setIsLoading,
+    setArchitectReview,
+    loadApiKeys,
+    toast
+  }), [messages, thoughtProcess]);
 
   useEffect(() => {
     const loadInitialState = async () => {
@@ -134,73 +144,6 @@ const Index = () => {
   const handleFileRemove = useCallback((fileId: string) => {
     setAttachedFiles((prev) => prev.filter((file) => file.id !== fileId));
   }, []);
-
-  const handleInteractionOption = useCallback(async (choice: number) => {
-    if (messages.length === 0) return;
-
-    const lastMessage = messages[messages.length - 1];
-    const apiKeys = loadApiKeys();
-
-    switch (choice) {
-      case 1: // Follow-up question
-        // Enable input for follow-up
-        setIsLoading(false);
-        break;
-      
-      case 2: // Explain reasoning
-        if (thoughtProcess) {
-          const newMessage: Message = {
-            role: 'assistant',
-            type: 'reasoning',
-            content: `Here's my detailed thought process:\n\n${thoughtProcess.map(t => 
-              `${t.type.toUpperCase()}:\n${t.content}`
-            ).join('\n\n')}`,
-            timestamp: Date.now()
-          };
-          setMessages(prev => [...prev, newMessage]);
-        }
-        break;
-      
-      case 3: // Show examples
-        if (lastMessage.content) {
-          setIsLoading(true);
-          try {
-            const response = await callDeepSeek(
-              `Please provide concrete examples for: ${lastMessage.content}`,
-              apiKeys.deepseek,
-              messages
-            );
-            setMessages(prev => [...prev, {
-              role: 'assistant',
-              type: 'answer',
-              content: response.content,
-              timestamp: Date.now()
-            }]);
-          } finally {
-            setIsLoading(false);
-          }
-        }
-        break;
-      
-      case 4: // Start new topic
-        setMessages([]);
-        setThoughtProcess(null);
-        setArchitectReview(null);
-        break;
-      
-      case 5: // Architect review
-        if (lastMessage.content && apiKeys.gemini) {
-          setIsLoading(true);
-          try {
-            const review = await callArchitectLLM(messages, apiKeys.gemini);
-            setArchitectReview(review);
-          } finally {
-            setIsLoading(false);
-          }
-        }
-        break;
-    }
-  }, [messages, thoughtProcess]);
 
   const handleSendMessage = useCallback(async (content: string) => {
     if (!content.trim() && attachedFiles.length === 0) return;
@@ -299,6 +242,49 @@ const Index = () => {
     audioManager.stop();
   }, [audioManager]);
 
+  const handleOptionSelect = useCallback(async (choice: number) => {
+    if (choice === 3) { // Show examples
+      setIsLoading(true);
+      try {
+        const apiKeys = loadApiKeys();
+        if (!apiKeys.deepseek) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "DeepSeek API key is required for examples",
+          });
+          return;
+        }
+        const lastMessage = messages[messages.length - 1];
+        const response = await callDeepSeek(
+          `Please provide concrete examples for: ${lastMessage.content}`,
+          apiKeys.deepseek,
+          messages
+        );
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          type: 'answer',
+          content: response.content,
+          timestamp: Date.now()
+        }]);
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to get examples",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    } else if (choice === 4) { // Start new topic
+      setMessages([]);
+      setThoughtProcess(null);
+      setArchitectReview(null);
+    } else {
+      await interactionHandler.handleOptionSelect(choice);
+    }
+  }, [interactionHandler, messages, setMessages, setThoughtProcess, setArchitectReview, toast]);
+
   const renderModeContent = (children) => {
     switch (selectedMode) {
       case 'researcher':
@@ -378,7 +364,7 @@ const Index = () => {
           />
 
           <InteractionOptions 
-            onSelect={handleInteractionOption}
+            onSelect={handleOptionSelect}
             disabled={isLoading || messages.length === 0}
           />
         </>

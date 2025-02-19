@@ -50,6 +50,38 @@ export const API_ENDPOINTS = {
   DEEPSEEK: "https://api.deepseek.com/v1"
 } as const;
 
+export function loadApiKeys() {
+  try {
+    // First try to load from environment
+    const envKeys = {
+      deepseek: import.meta.env.VITE_DEEPSEEK_API_KEY,
+      gemini: import.meta.env.VITE_GEMINI_API_KEY,
+      elevenlabs: import.meta.env.VITE_ELEVENLABS_API_KEY,
+    };
+
+    // If any keys are in env, use those
+    if (envKeys.deepseek || envKeys.gemini || envKeys.elevenlabs) {
+      return envKeys;
+    }
+
+    // Otherwise try localStorage
+    const storedKeys = localStorage.getItem(API_KEYS_STORAGE);
+    if (!storedKeys) {
+      return {};
+    }
+
+    const parsedKeys = JSON.parse(storedKeys);
+    return {
+      deepseek: parsedKeys.deepseek || "",
+      gemini: parsedKeys.gemini || "",
+      elevenlabs: parsedKeys.elevenlabs || "",
+    };
+  } catch (error) {
+    console.error('Error loading API keys:', error);
+    return {};
+  }
+}
+
 export const saveApiKeys = (keys: { [key: string]: string }) => {
   try {
     // Validate keys before saving
@@ -60,41 +92,6 @@ export const saveApiKeys = (keys: { [key: string]: string }) => {
   } catch (error) {
     console.error("Invalid API key format:", error);
     throw new Error("Invalid API key format. Please check your API keys.");
-  }
-};
-
-export const loadApiKeys = () => {
-  try {
-    const stored = localStorage.getItem(API_KEYS_STORAGE);
-    if (!stored) {
-      return {
-        deepseek: null,
-        elevenlabs: null,
-        gemini: null
-      };
-    }
-    
-    const keys = JSON.parse(stored);
-    // Validate loaded keys
-    try {
-      ApiKeySchema.parse(keys);
-      return keys;
-    } catch (error) {
-      console.error("Invalid stored API keys:", error);
-      // Return empty keys if validation fails
-      return {
-        deepseek: null,
-        elevenlabs: null,
-        gemini: null
-      };
-    }
-  } catch (error) {
-    console.error("Error loading API keys:", error);
-    return {
-      deepseek: null,
-      elevenlabs: null,
-      gemini: null
-    };
   }
 };
 
