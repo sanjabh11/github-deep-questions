@@ -1,5 +1,6 @@
 import { FileUpload } from "./types";
 import { API_ENDPOINTS } from "./api";
+import { PDFHandler } from '../lib/fileHandlers/pdfHandler';
 
 interface ResearchContext {
   source: string;
@@ -160,137 +161,154 @@ export class Researcher {
     }
   }
 
-  private async analyzeContent(content: string, contexts: ResearchContext[]): Promise<string> {
+  private async analyzeContent(content: string, files: FileUpload[] = [], attempt: number = 1): Promise<string> {
     try {
-      const messages = [
-        {
-          role: "system",
-          content: `You are a research assistant specializing in deep technical analysis and comprehensive information synthesis.
-          Your task is to analyze the research query and provided contexts to generate a thorough, well-structured response.
-          
-          ANALYSIS APPROACH:
-          1. Evaluate all provided contexts critically
-          2. Identify key patterns and insights
-          3. Synthesize information across multiple sources
-          4. Provide concrete examples and evidence
-          5. Acknowledge any limitations or gaps
-          
-          OUTPUT STRUCTURE:
-          1. Key Findings
-          2. Detailed Analysis
-          3. Supporting Evidence
-          4. Practical Implications
-          5. Further Considerations`
-        },
-        {
-          role: "user",
-          content: `Research Query: ${content}\n\nContexts:\n${contexts
-            .map((ctx) => `Source: ${ctx.source}\nContent: ${ctx.content}\n`)
-            .join("\n")}`
+      const fileContents = files.map(file => {
+        // For binary files, we include just the metadata
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          return `[Binary file: ${file.name} (${file.type})]`;
         }
-      ];
+        return `File: ${file.name}\nContent: ${file.content}`;
+      }).join('\n\n');
 
-      console.log('Sending request to Gemini with messages:', JSON.stringify(messages, null, 2));
-
+      const prompt = `Analyze the following content and attached files:\n\n${content}\n\n${fileContents}`;
+      
       const response = await this.fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
+        '/api/proxy/openrouter/chat/completions',
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": this.geminiKey
+            "Authorization": `Bearer ${this.openRouterKey}`,
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: messages[messages.length - 1].content
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
+            model: "deepseek/deepseek-chat",
+            messages: [
+              {
+                role: "system",
+                content: "You are an expert research assistant analyzing content and files."
+              },
+              {
+                role: "user", 
+                content: prompt
+              }
+            ],
+            temperature: 0.3
           })
         }
       );
 
-      console.log('Gemini response status:', response.status);
-      console.log('Gemini response headers:', Object.fromEntries(response.headers.entries()));
-
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Error:', errorData);
-        throw new Error(`Request failed with status ${response.status}: ${errorData.error?.message || 'Unknown error'}`);
+        throw new Error(`API request failed: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log('Response Data:', data);
       
-      // Handle different response structures
-      let analysisText = '';
-      if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) {
-        analysisText = data.candidates[0].content.parts[0].text;
-      } else if (data.contents?.[0]?.parts?.[0]?.text) {
-        analysisText = data.contents[0].parts[0].text;
-      } else {
-        console.error('Unexpected Gemini response structure:', JSON.stringify(data, null, 2));
-        throw new Error('Research analysis failed: Invalid response format');
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format: missing or empty content');
       }
 
-      // Validate analysis result
-      if (!analysisText.trim()) {
-        throw new Error('Research analysis failed: Empty response');
-      }
+      return data.choices[0].message.content;
 
-      return analysisText;
     } catch (error) {
-      console.error('Analyze content error:', error);
-      // Add more context to the error
-      const enhancedError = new Error(`Research analysis failed: ${error.message}`);
-      enhancedError.stack = error.stack;
-      throw enhancedError;
+      if (attempt < 3) {
+        // Exponential backoff
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.analyzeContent(content, files, attempt + 1);
+      }
+      throw error;
     }
   }
 
-  public async analyze(content: string, files: FileUpload[] = []): Promise<string> {
-    const MAX_RETRIES = 2;
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`Retry attempt ${attempt}/${MAX_RETRIES}`);
-          // Wait before retry with exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
-        }
-
-        // Search for relevant information
-        const contexts = await this.searchWeb(content);
-        
-        // Validate contexts
-        if (!contexts || contexts.length === 0) {
-          console.warn('No research contexts found, proceeding with analysis anyway');
-        }
-        
-        // Analyze the content with the found contexts
-        const analysis = await this.analyzeContent(content, contexts);
-        
-        return analysis;
-      } catch (error) {
-        lastError = error;
-        console.error(`Analysis attempt ${attempt + 1} failed:`, error);
-        
-        // If this was the last attempt, throw the error
-        if (attempt === MAX_RETRIES) {
-          throw new Error(`Research analysis failed after ${MAX_RETRIES + 1} attempts: ${error.message}`);
-        }
+  private async processLargeContent(content: string, chunkSize: number = 4000): Promise<string[]> {
+    // Split content into chunks while preserving word boundaries
+    const chunks: string[] = [];
+    let currentChunk = '';
+    const words = content.split(/\s+/);
+    
+    for (const word of words) {
+      if ((currentChunk + word).length > chunkSize) {
+        chunks.push(currentChunk.trim());
+        currentChunk = word;
+      } else {
+        currentChunk += ' ' + word;
       }
     }
+    if (currentChunk) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    return chunks;
+  }
 
-    // This should never be reached due to the throw above, but TypeScript needs it
-    throw lastError || new Error('Unknown error occurred');
+  private async preprocessFiles(files: FileUpload[]): Promise<FileUpload[]> {
+    const processedFiles: FileUpload[] = [];
+    
+    for (const file of files) {
+      try {
+        if (file.type === 'application/pdf') {
+          const extractedText = await PDFHandler.processPDFContent(file);
+          processedFiles.push({
+            name: file.name,
+            content: extractedText,
+            type: 'text/plain'
+          });
+        } else {
+          processedFiles.push(file);
+        }
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+        // Add error information to the file content
+        processedFiles.push({
+          name: file.name,
+          content: `Error processing file: ${error.message}`,
+          type: 'text/plain'
+        });
+      }
+    }
+    
+    return processedFiles;
+  }
+
+  public async analyze(content: string, files: FileUpload[] = []): Promise<string> {
+    try {
+      // First preprocess any files
+      const processedFiles = await this.preprocessFiles(files);
+      
+      // Process content in chunks
+      const chunks = await this.processLargeContent(content);
+      const analyses: string[] = [];
+      
+      // Add processed file contents to the analysis
+      const fileContents = processedFiles.map(file => 
+        `File: ${file.name}\nContent: ${file.content}`
+      ).join('\n\n');
+      
+      // Analyze each chunk with file contents
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkContent = `${chunks[i]}\n\nAttached Files:\n${fileContents}`;
+        const chunkAnalysis = await this.analyzeContent(
+          `Part ${i + 1}/${chunks.length}:\n${chunkContent}`, 
+          []
+        );
+        analyses.push(chunkAnalysis);
+      }
+      
+      // If we have multiple analyses, synthesize them
+      if (analyses.length > 1) {
+        return await this.analyzeContent(
+          'Synthesize the following analyses into a coherent response:\n\n' +
+          analyses.map((a, i) => `Analysis ${i + 1}:\n${a}`).join('\n\n'),
+          []
+        );
+      }
+      
+      return analyses[0];
+    } catch (error) {
+      console.error('Analysis error:', error);
+      throw error;
+    }
   }
 
   private openRouterKey: string;

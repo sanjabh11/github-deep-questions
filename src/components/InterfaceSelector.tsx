@@ -27,16 +27,33 @@ export const InterfaceSelector: React.FC<Props> = ({ onSubmit, isProcessing }) =
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
+          let content: string;
+          if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+            // For binary files, convert ArrayBuffer to base64
+            content = btoa(
+              new Uint8Array(e.target.result as ArrayBuffer)
+                .reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+          } else {
+            // For text files, use as is
+            content = e.target.result as string;
+          }
           newFiles.push({
             name: file.name,
-            content: e.target.result as string
+            content: content,
+            type: file.type
           });
           if (newFiles.length === fileList.length) {
             setFiles(prev => [...prev, ...newFiles]);
           }
         }
       };
-      reader.readAsText(file);
+      
+      if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file);
+      }
     });
   }, []);
 

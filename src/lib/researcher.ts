@@ -238,61 +238,112 @@ export class Researcher {
           2. Detailed Analysis
           3. Supporting Evidence
           4. Practical Implications
-          5. Further Considerations`
+          5. Further Considerations
+          
+          IMPORTANT FORMATTING RULES:
+          - Use clear section headers
+          - Keep paragraphs concise and focused
+          - Use bullet points for lists
+          - Include numerical values and metrics when available
+          - Highlight critical information
+          - Maintain consistent formatting throughout`
         },
         {
           role: "user",
-          content: `Research Query: ${content}\n\nContexts:\n${contexts
-            .map((ctx) => `Source: ${ctx.source}\nContent: ${ctx.content}\n`)
+          content: `Research Query: ${content}\n\nAnalyze the following contexts and provide a comprehensive report:\n\n${contexts
+            .map((ctx, index) => `[Source ${index + 1}] ${ctx.source}\n${ctx.content}\n---\n`)
             .join("\n")}`
         }
       ];
 
       console.log('Sending request to Gemini with messages:', JSON.stringify(messages, null, 2));
 
-      const response = await this.fetchWithTimeout(
-        '/api/proxy/gemini/models/gemini-2.0-flash-thinking-exp-01-21:generateContent',
-        {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": this.geminiKey
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: messages[0].content + "\n\n" + messages[1].content
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 1024,
-            },
-            safetySettings: [
-              {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+      let retryCount = 0;
+      const maxRetries = 3;
+      const baseDelay = 1000; // 1 second
+
+      while (retryCount < maxRetries) {
+        try {
+          const response = await this.fetchWithTimeout(
+            '/api/proxy/gemini/models/gemini-2.0-flash-thinking-exp-01-21:generateContent',
+            {
+              method: "POST",
+              headers: {
+                "x-goog-api-key": this.geminiKey,
+                "Content-Type": "application/json"
               },
-              {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-              }
-            ]
-          })
+              body: JSON.stringify({
+                contents: [{
+                  role: "user",
+                  parts: [{
+                    text: messages[0].content + "\n\n" + messages[1].content
+                  }]
+                }],
+                generationConfig: {
+                  temperature: 0.7,
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 1024,
+                  candidateCount: 1
+                },
+                safetySettings: [
+                  {
+                    category: "HARM_CATEGORY_HARASSMENT",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                  },
+                  {
+                    category: "HARM_CATEGORY_HATE_SPEECH",
+                    threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                  }
+                ]
+              })
+            }
+          );
+
+          if (!response.ok) {
+            const text = await response.text();
+            console.error(`Gemini API error response (attempt ${retryCount + 1}/${maxRetries}):`, text);
+            throw new Error(`Failed to analyze content: ${response.status} ${response.statusText} - ${text}`);
+          }
+
+          const data = await response.json();
+          
+          // Enhanced response validation
+          if (!data) {
+            throw new Error('Empty response from Gemini API');
+          }
+
+          // Check for error field in response
+          if (data.error) {
+            throw new Error(`Gemini API error: ${data.error.message || JSON.stringify(data.error)}`);
+          }
+
+          // Validate response structure
+          if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+            throw new Error('Invalid response format: missing or empty candidates array');
+          }
+
+          const candidate = data.candidates[0];
+          if (!candidate.content?.parts?.[0]?.text) {
+            throw new Error('Invalid response format: missing content text in first candidate');
+          }
+
+          // If we reach here, we have valid data
+          return candidate.content.parts[0].text.trim();
+
+        } catch (error) {
+          console.error(`Attempt ${retryCount + 1}/${maxRetries} failed:`, error);
+          
+          if (retryCount < maxRetries - 1) {
+            // Calculate delay with exponential backoff
+            const delay = baseDelay * Math.pow(2, retryCount);
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            retryCount++;
+          } else {
+            throw error; // Rethrow on final attempt
+          }
         }
-      );
-
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Gemini API error response:', text);
-        throw new Error(`Failed to analyze content: ${response.status} ${response.statusText} - ${text}`);
-      }
-
-      const data = await response.json();
-      if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        console.error('Invalid response format from Gemini API:', data);
-        throw new Error('Invalid response format from Gemini API');
       }
 
       return data.candidates[0].content.parts[0].text.trim();
@@ -306,26 +357,74 @@ export class Researcher {
     const MAX_RETRIES = 2;
     let lastError: Error | null = null;
 
+    // Log file attachments status
+    console.log('Analyzing with files:', files.length ? files.map(f => ({ name: f.name, size: f.size })) : 'No files attached');
+
     for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
       try {
         // Search the web for relevant information
+        console.log(`Starting web search (attempt ${attempt}/${MAX_RETRIES + 1})...`);
         const contexts = await this.searchWeb(content);
-        console.log('Web search results:', contexts);
+        console.log(`Web search completed with ${contexts.length} results`);
+
+        // Add file content to contexts if available
+        if (files.length > 0) {
+          console.log('Processing attached files...');
+          for (const file of files) {
+            try {
+              // Extract and process file content
+              if (file.content) {
+                let fileContent = '';
+                if (typeof file.content === 'string') {
+                  // Handle base64 encoded content
+                  if (file.content.startsWith('data:')) {
+                    const base64Content = file.content.split(',')[1];
+                    fileContent = atob(base64Content);
+                  } else {
+                    fileContent = file.content;
+                  }
+                } else {
+                  // Handle ArrayBuffer content
+                  fileContent = new TextDecoder().decode(file.content);
+                }
+                
+                contexts.push({
+                  source: `File: ${file.name}`,
+                  content: fileContent.substring(0, 50000) // Limit content size for API processing
+                });
+              } else {
+                console.error(`No content available for file: ${file.name}`);
+                contexts.push({
+                  source: `File: ${file.name}`,
+                  content: `Error: Unable to read file content for ${file.name}`
+                });
+              }
+            } catch (fileError) {
+              console.error(`Error processing file ${file.name}:`, fileError);
+            }
+          }
+        }
 
         // Analyze the content with the gathered contexts
+        console.log('Starting content analysis...');
         const analysis = await this.analyzeContent(content, contexts);
+        console.log('Content analysis completed successfully');
         return analysis;
+
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.error(`Analysis attempt ${attempt} failed:`, error);
+        console.error(`Analysis attempt ${attempt}/${MAX_RETRIES + 1} failed:`, error);
         
         if (attempt <= MAX_RETRIES) {
-          console.log(`Retry attempt ${attempt}/${MAX_RETRIES}`);
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff with 5s max
+          console.log(`Waiting ${waitTime}ms before retry ${attempt}/${MAX_RETRIES}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
       }
     }
 
     throw new Error(`Research analysis failed after ${MAX_RETRIES + 1} attempts: ${lastError?.message}`);
+    // Consider implementing a fallback response here if needed
   }
 }
