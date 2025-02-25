@@ -225,7 +225,19 @@ export const callDeepSeek = async (
       throw new Error(`API error: ${thoughtResponse.status}`);
     }
 
-    const thoughtData = await thoughtResponse.json();
+    // Safely parse the thought response
+    let thoughtData;
+    try {
+      const thoughtText = await thoughtResponse.text();
+      if (!thoughtText || thoughtText.trim() === '') {
+        throw new Error('Empty response from API');
+      }
+      thoughtData = JSON.parse(thoughtText);
+    } catch (parseError) {
+      console.error('Failed to parse thought response:', parseError);
+      throw new Error(`Failed to parse API response: ${parseError.message}`);
+    }
+    
     const thoughts: ThoughtProcess[] = [];
     
     try {
@@ -284,7 +296,18 @@ export const callDeepSeek = async (
       throw new Error(`API error: ${solutionResponse.status}`);
     }
 
-    const solutionData = await solutionResponse.json();
+    // Safely parse the solution response
+    let solutionData;
+    try {
+      const solutionText = await solutionResponse.text();
+      if (!solutionText || solutionText.trim() === '') {
+        throw new Error('Empty response from API');
+      }
+      solutionData = JSON.parse(solutionText);
+    } catch (parseError) {
+      console.error('Failed to parse solution response:', parseError);
+      throw new Error(`Failed to parse API response: ${parseError.message}`);
+    }
     
     if (!solutionData?.choices?.[0]?.message?.content) {
       throw new Error('Invalid response format: missing content');
@@ -314,7 +337,7 @@ export const callDeepSeek = async (
     if (error instanceof SyntaxError) {
       return {
         content: "I encountered an error processing the response. Let me try a simpler approach.",
-        reasoning: "Error parsing response",
+        reasoning: "Error parsing response: " + error.message,
         thoughtProcess: [],
         status: 'error'
       };

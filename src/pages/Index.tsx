@@ -8,7 +8,7 @@ import { callDeepSeek, saveToLocalStorage, loadFromLocalStorage, saveApiKeys, lo
 import { Researcher } from "@/lib/researcher";
 import { Coder } from "@/lib/coder";
 import { AudioManager } from "@/lib/audio";
-import { ChatMode, FileUpload, Message, MessageRole } from "@/lib/types";
+import { ChatMode, FileUpload, Message, MessageRole, MessageType, FollowUpQuestion } from "@/lib/types";
 import { loadChatMode, saveChatMode, loadTemporaryFiles } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,11 @@ import { ThoughtProcessDisplay } from "@/components/ThoughtProcess";
 import { ArchitectReview } from "@/components/ArchitectReview";
 import { callArchitectLLM } from "@/lib/architect";
 import { InteractionHandler } from "@/lib/interactionHandler";
+import { FollowUpQuestions } from "@/components/FollowUpQuestions";
+import { FollowUpService } from "@/lib/services/followUpService";
+import { Example } from "@/lib/services/examplesService";
+import { Examples } from "@/components/Examples";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Mode-specific components
 const DefaultMode = ({ children, isActive }) => (
@@ -69,17 +74,38 @@ const Index = () => {
   const [showApiKeys, setShowApiKeys] = useState(false);
   const [thoughtProcess, setThoughtProcess] = useState(null);
   const [architectReview, setArchitectReview] = useState(null);
+  const [followUpQuestions, setFollowUpQuestions] = useState<FollowUpQuestion[]>([]);
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [examples, setExamples] = useState<Example[]>([]);
+  const [examplesLoading, setExamplesLoading] = useState<boolean>(false);
+  const [examplesError, setExamplesError] = useState<string | null>(null);
   const { toast } = useToast();
-  const audioManager = new AudioManager();
-  const interactionHandler = useMemo(() => new InteractionHandler({
-    messages,
-    thoughtProcess,
-    setMessages,
-    setIsLoading,
-    setArchitectReview,
-    loadApiKeys,
-    toast
-  }), [messages, thoughtProcess]);
+  const audioManager = useMemo(() => new AudioManager(), []);
+  const [confirmNewTopic, setConfirmNewTopic] = useState<boolean>(false);
+  const [architectReviewLoading, setArchitectReviewLoading] = useState<boolean>(false);
+  const [architectReviewError, setArchitectReviewError] = useState<string | null>(null);
+  
+  const interactionHandler = useMemo(() => {
+    return new InteractionHandler({
+      messages,
+      thoughtProcess,
+      setMessages,
+      setIsLoading,
+      setArchitectReview,
+      loadApiKeys,
+      toast,
+      setFollowUpQuestions,
+      setFollowUpLoading,
+      setFollowUpError,
+      setExamples,
+      setExamplesLoading,
+      setExamplesError,
+      setConfirmNewTopic,
+      setArchitectReviewLoading,
+      setArchitectReviewError
+    });
+  }, [messages, thoughtProcess, setMessages, setIsLoading, setArchitectReview, toast]);
 
   useEffect(() => {
     const loadInitialState = async () => {
@@ -243,47 +269,43 @@ const Index = () => {
   }, [audioManager]);
 
   const handleOptionSelect = useCallback(async (choice: number) => {
-    if (choice === 3) { // Show examples
-      setIsLoading(true);
-      try {
-        const apiKeys = loadApiKeys();
-        if (!apiKeys.deepseek) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "DeepSeek API key is required for examples",
-          });
-          return;
-        }
-        const lastMessage = messages[messages.length - 1];
-        const response = await callDeepSeek(
-          `Please provide concrete examples for: ${lastMessage.content}`,
-          apiKeys.deepseek,
-          messages
-        );
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          type: 'answer',
-          content: response.content,
-          timestamp: Date.now()
-        }]);
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to get examples",
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    } else if (choice === 4) { // Start new topic
-      setMessages([]);
-      setThoughtProcess(null);
-      setArchitectReview(null);
-    } else {
-      await interactionHandler.handleOptionSelect(choice);
-    }
-  }, [interactionHandler, messages, setMessages, setThoughtProcess, setArchitectReview, toast]);
+    await interactionHandler.handleOptionSelect(choice);
+  }, [interactionHandler]);
+
+  const handleConfirmNewTopic = useCallback(() => {
+    interactionHandler.confirmStartNewTopic();
+  }, [interactionHandler]);
+
+  const handleFollowUpSelect = useCallback((question: FollowUpQuestion) => {
+    // First add the question to the messages
+    const userMessage: Message = {
+      role: 'user',
+      type: 'user',
+      content: question.question,
+      timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Clear the follow-up questions
+    setFollowUpQuestions([]);
+    
+    // Then process the question
+    handleSendMessage(question.question);
+  }, [handleSendMessage, setMessages]);
+
+  const handleApplyImprovement = useCallback((improvement) => {
+    // Add the improvement suggestion as a user message
+    const userMessage: Message = {
+      role: 'user' as MessageRole,
+      type: 'user' as MessageType,
+      content: `Please apply this improvement: ${improvement.title}\n\n${improvement.description}`,
+      timestamp: Date.now()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    handleSendMessage(userMessage.content);
+  }, [handleSendMessage]);
 
   const renderModeContent = (children) => {
     switch (selectedMode) {
@@ -297,7 +319,7 @@ const Index = () => {
   };
 
   return (
-    <div className="container mx-auto p-4 max-w-4xl">
+    <div className="container mx-auto py-6 max-w-4xl">
       <ApiKeyManager 
         onSubmit={handleApiKeys}
         initialKeys={loadApiKeys()}
@@ -333,9 +355,24 @@ const Index = () => {
             ))}
           </div>
 
+          {examples.length > 0 && !isLoading && (
+            <div className="mb-4">
+              <Examples 
+                examples={examples}
+                isLoading={examplesLoading}
+                error={examplesError}
+              />
+            </div>
+          )}
+
           {architectReview && (
             <div className="mb-4">
-              <ArchitectReview review={architectReview} />
+              <ArchitectReview 
+                review={architectReview} 
+                isLoading={architectReviewLoading}
+                error={architectReviewError}
+                onApplyImprovement={handleApplyImprovement}
+              />
             </div>
           )}
 
@@ -358,6 +395,18 @@ const Index = () => {
             )}
           </div>
 
+          {followUpQuestions.length > 0 && !isLoading && (
+            <div className="mb-4">
+              <FollowUpQuestions
+                questions={followUpQuestions}
+                onSelect={handleFollowUpSelect}
+                isLoading={followUpLoading}
+                error={followUpError}
+                className="mb-2"
+              />
+            </div>
+          )}
+
           <ChatInput 
             onSend={handleSendMessage}
             disabled={isLoading}
@@ -369,6 +418,16 @@ const Index = () => {
           />
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmNewTopic}
+        onOpenChange={setConfirmNewTopic}
+        onConfirm={handleConfirmNewTopic}
+        title="Start a new topic?"
+        description="This will clear the current conversation. Are you sure you want to start a new topic?"
+        confirmText="Start new topic"
+        cancelText="Keep current conversation"
+      />
     </div>
   );
 };

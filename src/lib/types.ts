@@ -11,6 +11,13 @@ export interface Message {
   timestamp?: number;
 }
 
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  relevance: number;
+  context: string;
+}
+
 export interface FileUpload {
   id: string;
   name: string;

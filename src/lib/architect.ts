@@ -1,10 +1,17 @@
 import { Message } from "./types";
 
 export interface ArchitectReview {
-  criticalIssues: string[];
-  potentialProblems: string[];
-  improvements: string[];
-  verdict: "APPROVED" | "NEEDS_REVISION";
+  criticalIssues: string[] | ReviewItem[];
+  potentialProblems: string[] | ReviewItem[];
+  improvements: string[] | ReviewItem[];
+  verdict: "APPROVED" | "NEEDS_REVISION" | "REVIEW_FAILED" | "ERROR";
+  rawText?: string;
+}
+
+export interface ReviewItem {
+  title: string;
+  description: string;
+  severity?: string;
 }
 
 const analyzeQueryType = (messages: Message[]): string => {
@@ -177,11 +184,75 @@ const validateReviewObject = (obj: any): ArchitectReview => {
     return defaultReview;
   }
 
+  // Convert string arrays to ReviewItem arrays if needed
+  const convertToReviewItems = (items: string[]): ReviewItem[] => {
+    return items.map(item => ({
+      title: item.substring(0, 50) + (item.length > 50 ? '...' : ''),
+      description: item,
+      severity: 'suggestion'
+    }));
+  };
+
+  // Process critical issues
+  let criticalIssues: ReviewItem[] = [];
+  if (Array.isArray(obj.criticalIssues)) {
+    criticalIssues = obj.criticalIssues.map(issue => {
+      if (typeof issue === 'string') {
+        return {
+          title: issue.substring(0, 50) + (issue.length > 50 ? '...' : ''),
+          description: issue,
+          severity: 'critical'
+        };
+      }
+      return {
+        ...issue,
+        severity: issue.severity || 'critical'
+      };
+    });
+  }
+
+  // Process potential problems
+  let potentialProblems: ReviewItem[] = [];
+  if (Array.isArray(obj.potentialProblems)) {
+    potentialProblems = obj.potentialProblems.map(problem => {
+      if (typeof problem === 'string') {
+        return {
+          title: problem.substring(0, 50) + (problem.length > 50 ? '...' : ''),
+          description: problem,
+          severity: 'warning'
+        };
+      }
+      return {
+        ...problem,
+        severity: problem.severity || 'warning'
+      };
+    });
+  }
+
+  // Process improvements
+  let improvements: ReviewItem[] = [];
+  if (Array.isArray(obj.improvements)) {
+    improvements = obj.improvements.map(improvement => {
+      if (typeof improvement === 'string') {
+        return {
+          title: improvement.substring(0, 50) + (improvement.length > 50 ? '...' : ''),
+          description: improvement,
+          severity: 'suggestion'
+        };
+      }
+      return {
+        ...improvement,
+        severity: improvement.severity || 'suggestion'
+      };
+    });
+  }
+
   return {
-    criticalIssues: Array.isArray(obj.criticalIssues) ? obj.criticalIssues : [],
-    potentialProblems: Array.isArray(obj.potentialProblems) ? obj.potentialProblems : [],
-    improvements: Array.isArray(obj.improvements) ? obj.improvements : [],
-    verdict: obj.criticalIssues?.length > 0 ? 'NEEDS_REVISION' : 'APPROVED'
+    criticalIssues,
+    potentialProblems,
+    improvements,
+    verdict: criticalIssues.length > 0 ? 'NEEDS_REVISION' : 'APPROVED',
+    rawText: obj.rawText
   };
 };
 
@@ -190,6 +261,11 @@ export const callArchitectLLM = async (
   apiKey: string
 ): Promise<ArchitectReview> => {
   try {
+    // Validate API key
+    if (!apiKey || apiKey.trim() === '') {
+      throw new Error('Gemini API key is required for architect review');
+    }
+
     const queryType = analyzeQueryType(messages);
     const strategy = getReviewStrategy(queryType, messages);
     const prompt = getReviewPrompt(queryType, strategy, messages);
@@ -219,10 +295,32 @@ export const callArchitectLLM = async (
 
     if (!response.ok) {
       console.error('Gemini API error:', response.status);
-      throw new Error(`Gemini API error: ${response.status}`);
+      
+      // Handle specific error codes
+      if (response.status === 400) {
+        throw new Error('Invalid request to Gemini API. Please check your API key and request format.');
+      } else if (response.status === 401 || response.status === 403) {
+        throw new Error('Authentication error with Gemini API. Please check your API key.');
+      } else if (response.status === 429) {
+        throw new Error('Rate limit exceeded for Gemini API. Please try again later.');
+      } else {
+        throw new Error(`Gemini API error: ${response.status}`);
+      }
     }
 
-    const data = await response.json();
+    // Safely parse the response
+    let data;
+    try {
+      const responseText = await response.text();
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('Empty response from Gemini API');
+      }
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse Gemini API response:', parseError);
+      throw new Error(`Failed to parse Gemini API response: ${parseError.message}`);
+    }
+
     console.log('Gemini API response:', data);
 
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
@@ -233,7 +331,25 @@ export const callArchitectLLM = async (
     const reviewText = data.candidates[0].content.parts[0].text;
     console.log('Raw review text:', reviewText);
 
-    const parsedReview = parseReviewResponse(reviewText);
+    let parsedReview;
+    try {
+      parsedReview = parseReviewResponse(reviewText);
+    } catch (parseError) {
+      console.error('Failed to parse review response:', parseError);
+      // Return a basic review with the raw text
+      return {
+        criticalIssues: [],
+        potentialProblems: [],
+        improvements: [{
+          title: 'Review could not be parsed',
+          description: 'The raw review text is provided below.',
+          severity: 'suggestion'
+        }],
+        verdict: 'REVIEW_FAILED',
+        rawText: reviewText
+      };
+    }
+
     const validatedReview = validateReviewObject(parsedReview);
 
     console.log('Validated review:', validatedReview);
@@ -245,8 +361,12 @@ export const callArchitectLLM = async (
     return {
       criticalIssues: [],
       potentialProblems: [],
-      improvements: [],
-      verdict: 'APPROVED'
+      improvements: [{
+        title: 'Error generating review',
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        severity: 'warning'
+      }],
+      verdict: 'ERROR'
     };
   }
 };
