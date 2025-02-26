@@ -1,6 +1,7 @@
 import { Message, FollowUpQuestion } from '../types';
 import { callDeepSeek } from '../api';
 import { versionManager } from '../version/chatVersionManager';
+import { extractJson } from '../jsonParser';
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
@@ -86,12 +87,21 @@ export class FollowUpService {
       }
 
       try {
-        // Safely parse the JSON response
-        const parsed = JSON.parse(response.content);
+        // Use the improved extractJson function to handle markdown and escaped characters
+        const jsonString = extractJson(response.content);
+        const parsed = JSON.parse(jsonString);
+        
         if (!parsed.questions || !Array.isArray(parsed.questions)) {
           throw new Error('Invalid response format: missing questions array');
         }
-        return parsed.questions;
+        
+        // Validate and sanitize each question
+        return parsed.questions.map((q, index) => ({
+          id: q.id || `question_${index + 1}`,
+          question: q.question || 'Could you elaborate on that?',
+          relevance: typeof q.relevance === 'number' ? q.relevance : 0.7 - (index * 0.05),
+          context: q.context || 'Follow-up question'
+        }));
       } catch (parseError) {
         console.error('Failed to parse follow-up questions JSON:', parseError);
         // Try to extract questions from text if JSON parsing fails

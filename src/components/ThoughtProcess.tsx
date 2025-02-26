@@ -45,7 +45,9 @@ export const ThoughtProcessDisplay = ({ thought }: ThoughtProcessProps) => {
             {thought.type}...
           </div>
           <div className="text-sm text-gray-700 whitespace-pre-wrap">
-            {thought.content}
+            {typeof thought.content === 'string' 
+              ? thought.content 
+              : JSON.stringify(thought.content, null, 2)}
           </div>
         </div>
       </div>

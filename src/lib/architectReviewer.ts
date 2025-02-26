@@ -113,7 +113,7 @@ EXAMPLE RESPONSE (copy this format exactly):
     try {
       console.log('Sending request to Gemini with formatted messages');
 
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent", {
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

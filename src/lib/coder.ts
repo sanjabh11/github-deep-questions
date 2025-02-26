@@ -3,24 +3,104 @@ import { Message } from "./api";
 export class Coder {
   private abortController: AbortController | null = null;
 
-  constructor() {
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    
-    if (!geminiKey) {
-      const loadedKeys = loadApiKeys();
-      if (!loadedKeys.gemini) {
-        throw new Error("Gemini API key is required for coder mode");
-      }
-      this.geminiKey = loadedKeys.gemini;
-    } else {
-      this.geminiKey = geminiKey;
-    }
+  constructor(private geminiKey: string = import.meta.env.VITE_GEMINI_API_KEY) {
+    console.log("Gemini API Key:", this.geminiKey); // Log the key for debugging
   }
 
   public abort() {
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
+    }
+  }
+
+  public async processRequest(
+    query: string,
+    files: { name: string; content: string }[] = [],
+    onProgress?: (message: Message) => void
+  ): Promise<Message[]> {
+    const messages: Message[] = [];
+    const addMessage = (message: Message) => {
+      messages.push(message);
+      onProgress?.(message);
+    };
+
+    try {
+      const intent = await this.classifyIntent(query);
+      switch (intent) {
+        case "code generation":
+          return await this.generateCode(query, onProgress);
+        case "code improvement":
+        case "debugging":
+          if (files.length === 0) {
+            throw new Error("Files are required for code improvement or debugging.");
+          }
+          return await this.analyze(query, files, onProgress);
+        case "mathematical analysis":
+          return await this.generateCode(query, onProgress);
+        default:
+          throw new Error(`Unknown intent: ${intent}`);
+      }
+    } catch (error) {
+      addMessage({
+        type: "system",
+        content: `❌ Error: ${error.message}`,
+      });
+      return messages;
+    }
+  }
+
+  public async generateCode(
+    prompt: string,
+    onProgress?: (message: Message) => void
+  ): Promise<Message[]> {
+    const messages: Message[] = [];
+    const addMessage = (message: Message) => {
+      messages.push(message);
+      onProgress?.(message);
+    };
+
+    this.abortController = new AbortController();
+    const timeoutId = setTimeout(() => this.abortController?.abort(), 60000); // 60 seconds timeout
+
+    try {
+      addMessage({ type: "system", content: "🎨 Generating code..." });
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": this.geminiKey,
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "Generate code based on: " + prompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+          }),
+          signal: this.abortController.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Code generation error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedCode = data.candidates[0].content.parts[0].text;
+
+      addMessage({ type: "answer", content: generatedCode });
+      return messages;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        addMessage({ type: "system", content: "❌ Code generation timed out after 60 seconds." });
+      } else {
+        addMessage({ type: "system", content: `❌ Error during generation: ${error.message}` });
+      }
+      return messages;
     }
   }
 
@@ -36,12 +116,10 @@ export class Coder {
     };
 
     this.abortController = new AbortController();
+    const timeoutId = setTimeout(() => this.abortController?.abort(), 60000); // 60 seconds timeout
 
     try {
-      addMessage({
-        type: "system",
-        content: "🔍 Analyzing code and requirements..."
-      });
+      addMessage({ type: "system", content: "🔍 Analyzing code..." });
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
@@ -49,180 +127,95 @@ export class Coder {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-goog-api-key": this.geminiKey
+            "x-goog-api-key": this.geminiKey,
           },
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `You are a SENIOR SOFTWARE ENGINEER with expertise in code creation, analysis and implementation.
-
-CONTEXT:
-Query: ${query}
-
-Files to analyze:
-${files.map(f => `--- ${f.name} ---\n${f.content}`).join('\n\n')}
-
-ANALYSIS INSTRUCTIONS:
-1. Code Structure and Organization
-   - Evaluate code architecture and patterns
-   - Identify potential code smells
-   - Assess modularity and reusability
-
-2. Implementation Quality
-   - Review algorithm efficiency
-   - Check error handling
-   - Validate edge cases
-   - Examine type safety and null checks
-
-3. Security Assessment
-   - Find security vulnerabilities
-   - Check for proper input validation
-   - Review authentication/authorization
-   - Identify data exposure risks
-
-4. Performance Optimization
-   - Spot performance bottlenecks
-   - Suggest optimization strategies
-   - Review resource usage
-
-5. Best Practices
-   - Compare against industry standards
-   - Check documentation quality
-   - Verify testing coverage
-   - Assess maintainability
-
-YOUR RESPONSE MUST:
-1. Be thorough yet concise
-2. Provide specific examples
-3. Include actionable improvements
-4. Consider scalability
-5. Follow clean code principles
-
-RESPONSE FORMAT:
-{
-  "analysis": {
-    "structure": ["Findings about code organization"],
-    "quality": ["Implementation quality findings"],
-    "security": ["Security-related issues"],
-    "performance": ["Performance observations"],
-    "bestPractices": ["Best practice recommendations"]
-  },
-  "improvements": ["Specific, actionable improvements"],
-  "priority": "HIGH" | "MEDIUM" | "LOW"
-}`
+                text: "Analyze code: " + query + " with files: " + files.map(f => f.name).join(", ")
               }]
             }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
+            generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
           }),
-          signal: this.abortController.signal
+          signal: this.abortController.signal,
         }
       );
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        throw new Error(`Analysis error: ${response.status}`);
       }
 
       const data = await response.json();
       const analysis = data.candidates[0].content.parts[0].text;
 
-      addMessage({
-        type: "answer",
-        content: analysis
-      });
-
+      addMessage({ type: "answer", content: analysis });
       return messages;
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        addMessage({
-          type: "system",
-          content: "❌ Code analysis cancelled."
-        });
+      clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        addMessage({ type: "system", content: "❌ Analysis timed out after 60 seconds." });
       } else {
-        addMessage({
-          type: "system",
-          content: `❌ Error during analysis: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
+        addMessage({ type: "system", content: `❌ Error during analysis: ${error.message}` });
       }
       return messages;
     }
   }
 
-  public async generateCode(prompt: string, onProgress?: (message: Message) => void): Promise<Message[]> {
-    const messages: Message[] = [];
-    const addMessage = (message: Message) => {
-      messages.push(message);
-      onProgress?.(message);
-    };
-
+  private async classifyIntent(query: string): Promise<string> {
     this.abortController = new AbortController();
+    const timeoutId = setTimeout(() => this.abortController?.abort(), 10000); // 10 seconds timeout
 
     try {
-      addMessage({
-        type: "system",
-        content: "🔍 Generating code based on the prompt..."
-      });
-
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-goog-api-key": this.geminiKey
+            "x-goog-api-key": this.geminiKey,
           },
           body: JSON.stringify({
             contents: [{
               parts: [{
-                text: `You are a SENIOR SOFTWARE ENGINEER tasked with generating code based on the following prompt:
+                text: `Classify the following user request into one of these categories:
 
-PROMPT:
-${prompt}
+- code generation: requests to create new code or scripts.
+- code improvement: requests to enhance or optimize existing code.
+- debugging: requests to find and fix errors in existing code.
+- mathematical analysis: requests for mathematical insights or computations without code.
 
-Please provide a complete and functional code snippet for the requested functionality.`
+Examples:
+- "Write a Python script to solve the quadratic equation." → code generation
+- "How can I make this function faster?" → code improvement
+- "Why does this loop cause an infinite loop?" → debugging
+- "Explain the concept of eigenvalues." → mathematical analysis
+
+Now, classify this request: "${query}"
+Respond with only the category name.`
               }]
             }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            }
+            generationConfig: { temperature: 0.0, maxOutputTokens: 10 },
           }),
-          signal: this.abortController.signal
+          signal: this.abortController.signal,
         }
       );
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
+        throw new Error(`Intent classification error: ${response.status}`);
       }
 
       const data = await response.json();
-      const generatedCode = data.candidates[0].content.parts[0].text;
-
-      addMessage({
-        type: "answer",
-        content: generatedCode
-      });
-
-      return messages;
+      return data.candidates[0].content.parts[0].text.trim().toLowerCase();
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        addMessage({
-          type: "system",
-          content: "❌ Code generation cancelled."
-        });
-      } else {
-        addMessage({
-          type: "system",
-          content: `❌ Error during code generation: ${error instanceof Error ? error.message : 'Unknown error'}`
-        });
+      clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        throw new Error("Intent classification timed out after 10 seconds");
       }
-      return messages;
+      throw error;
     }
   }
 }

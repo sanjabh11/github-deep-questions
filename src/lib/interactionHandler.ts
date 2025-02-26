@@ -89,7 +89,7 @@ export class InteractionHandler {
         
         try {
           const apiKeys = loadApiKeys();
-          if (!apiKeys.deepseek) {
+          if (!apiKeys.gemini) {
             setFollowUpError("DeepSeek API key is required for follow-up questions");
             break;
           }
@@ -155,7 +155,7 @@ export class InteractionHandler {
           } else {
             // If no thought process is available, generate one based on the last message
             const apiKeys = loadApiKeys();
-            if (!apiKeys.deepseek) {
+            if (!apiKeys.gemini) {
               toast({
                 variant: "destructive",
                 title: "Error",
@@ -206,7 +206,7 @@ export class InteractionHandler {
           setIsLoading(true);
           try {
             const apiKeys = loadApiKeys();
-            if (!apiKeys.deepseek) {
+            if (!apiKeys.gemini) {
               toast({
                 variant: "destructive",
                 title: "Error",
@@ -245,7 +245,7 @@ export class InteractionHandler {
         
         try {
           const apiKeys = loadApiKeys();
-          if (!apiKeys.deepseek) {
+          if (!apiKeys.gemini) {
             setExamplesError("DeepSeek API key is required for generating examples");
             break;
           }
@@ -291,8 +291,8 @@ export class InteractionHandler {
         
         try {
           const apiKeys = loadApiKeys();
-          if (!apiKeys.deepseek) {
-            const error = "DeepSeek API key is required for architect review";
+          if (!apiKeys.gemini) {
+            const error = "Gemini API key is required for architect review";
             if (setArchitectReviewError) {
               setArchitectReviewError(error);
             } else {
@@ -320,7 +320,7 @@ export class InteractionHandler {
             return;
           }
           
-          const review = await callArchitectLLM(messages, apiKeys.deepseek);
+          const review = await callArchitectLLM(messages, apiKeys.gemini);
           
           // Add version information
           const enhancedReview = {

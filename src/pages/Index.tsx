@@ -215,9 +215,22 @@ const Index = () => {
           if (!apiKey) {
             throw new Error("DeepSeek API key is required");
           }
-          const result = await callDeepSeek(content, apiKey, messages, (thought) => {
-            setThoughtProcess(prev => prev ? [...prev, thought] : [thought]);
-          });
+          
+          // Process file attachments for the default mode
+          const fileContents = attachedFiles.map(file => ({
+            name: file.name,
+            content: typeof file.content === 'string' ? file.content : 'Binary content not supported'
+          }));
+          
+          const result = await callDeepSeek(
+            content, 
+            apiKey, 
+            messages, 
+            (thought) => {
+              setThoughtProcess(prev => prev ? [...prev, thought] : [thought]);
+            },
+            fileContents // Pass file attachments to the API
+          );
           response = result.content;
           newThoughtProcess = result.thoughtProcess;
       }

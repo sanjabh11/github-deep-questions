@@ -1,6 +1,6 @@
 /**
  * Utility functions for parsing and validating JSON responses
- * Version: 2.0
+ * Version: 2.1
  */
 
 /**
@@ -36,12 +36,19 @@ export function extractJson(text: string): string {
     // Step 3: Clean up the extracted content
     cleaned = cleaned
         .replace(/\\"/g, '"')          // Fix escaped quotes
+        .replace(/\\n/g, ' ')          // Replace newlines with spaces
+        .replace(/\\t/g, ' ')          // Replace tabs with spaces
+        .replace(/\\r/g, '')           // Remove carriage returns
+        .replace(/\\\\/g, '\\')        // Fix double escaped backslashes
         .replace(/\s+/g, ' ')          // Normalize whitespace
         .replace(/"\s+:/g, '":')       // Fix spacing before colons
         .replace(/:\s+"/g, ':"')       // Fix spacing after colons
         .replace(/,\s+}/g, '}')        // Fix trailing commas
         .replace(/,\s+]/g, ']')        // Fix trailing commas in arrays
         .trim();
+
+    // Step 4: Handle malformed escapes that might cause parsing errors
+    cleaned = cleaned.replace(/\\([^"\\/bfnrtu])/g, '$1'); // Remove invalid escape sequences
 
     // Validate the cleaned JSON
     try {
@@ -50,7 +57,17 @@ export function extractJson(text: string): string {
     } catch (e) {
         console.error('Failed to parse cleaned JSON:', e);
         console.error('Cleaned text that failed:', cleaned);
-        throw new Error('Could not extract valid JSON');
+        
+        // Last resort: try to fix common JSON syntax errors
+        try {
+            // Try to fix unescaped quotes within strings
+            const fixedJson = cleaned.replace(/(?<!\\)"/g, '\\"').replace(/^"|"$/g, '"');
+            JSON.parse(fixedJson);
+            return fixedJson;
+        } catch (e2) {
+            console.error('Failed to fix JSON syntax:', e2);
+            throw new Error('Could not extract valid JSON');
+        }
     }
 }
 

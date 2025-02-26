@@ -3,7 +3,7 @@ import { Message, ApiResponse, ThoughtProcess } from '../types';
 const TIMEOUT_DURATION = 60000; // 60 seconds
 const API_ENDPOINTS = {
   DEEPSEEK: 'https://api.deepseek.com/v1/chat/completions',
-  GEMINI: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+  GEMINI: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp-01-21:generateContent'
 };
 
 const validateApiKey = (apiKey: string | null): string => {
@@ -169,6 +169,26 @@ Provide your review in this JSON format:
     try {
       const cleanJson = content.replace(/```json\s*|\s*```/g, '').trim();
       parsedContent = JSON.parse(cleanJson);
+
+      // Ensure the response has the expected structure
+      const reviewContent = {
+        type: 'review',
+        content: {
+          overview: 'Analysis of the solution',
+          strengths: [],
+          concerns: parsedContent.criticalIssues || [],
+          recommendations: parsedContent.improvements || [],
+          verdict: parsedContent.potentialProblems?.length ? 'Needs improvement' : 'Acceptable'
+        }
+      };
+
+      return {
+        content: JSON.stringify(reviewContent.content, null, 2),
+        type: 'architect_review',
+        status: 'complete',
+        timestamp: Date.now()
+      };
+
     } catch (e) {
       throw new Error('Invalid response format from architect review');
     }

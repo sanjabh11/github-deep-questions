@@ -1,0 +1,8 @@
+This is a test file to verify that file attachments are working correctly in the General Assistant mode.
+
+The General Assistant should be able to read and analyze this file content when it's attached to a message.
+
+Key points to verify:
+1. File content is properly extracted
+2. File content is included in the API request
+3. The response references information from this file
